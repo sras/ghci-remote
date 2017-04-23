@@ -4,6 +4,7 @@ import io
 import sys
 import time
 import threading
+import sys
 
 p = subprocess.Popen(["stack", "ghci"], shell=False, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
 
@@ -112,4 +113,9 @@ command_server_thread.start();
 error_client_thread.start();
 output_client_thread.start();
 
-command_server_thread.join();
+try:
+    command_server_thread.join();
+except KeyboardInterrupt:
+    p.stdin.write("{}\n".format(":q\n").encode())
+    p.stdin.flush()
+    sys.exit()
