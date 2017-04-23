@@ -30,6 +30,15 @@ def error_collector():
         line = p.stderr.readline()
         error_queue.put(line.decode())
 
+def dispatch(command):
+    command = ":cmd (return \" \\\"\\\" \\n \\\"{}\\\"\\n{}\\n\\\"{}\\\"\")\n".format(OUTPUT_START_DELIMETER, command, OUTPUT_END_DELIMETER)
+    print(command)
+    p.stdin.write(command.encode())
+    p.stdin.flush()
+    output = read_output()
+    errors = read_errors()
+    return (output, errors)
+
 def command_server():
     serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -38,19 +47,32 @@ def command_server():
     print("Starting command server")
     while True:
         (clientsocket, address) = serversocket.accept()
-        command = clientsocket.recv(REC_MAX_LENGTH)
-        command = ":cmd (return \" \\\"\\\" \\n \\\"{}\\\"\\n{}\\n\\\"{}\\\"\")\n".format(OUTPUT_START_DELIMETER, command.decode().strip(), OUTPUT_END_DELIMETER)
-        p.stdin.write(command.encode())
-        p.stdin.flush()
-        output = read_output()
-        errors = read_errors()
+        command = clientsocket.recv(REC_MAX_LENGTH).decode().strip()
+        print(command)
+        ghci_command = None
+        try:
+            ghci_command =  {"reload" : ":reload", "build": ":l Main", "buildtags": ":ctags"}[command] 
+        except KeyError:
+            if command == "collect_types":
+                collect_types()
+            continue
+        (output, errors) = dispatch(ghci_command)
         output_outfile = open("output.txt", 'w')
         error_outfile = open("errors.txt", 'w')
-        error_outfile.write(errors)
         output_outfile.write(output)
+        error_outfile.write(errors)
         output_outfile.close()
         error_outfile.close()
         clientsocket.send("ok".encode())
+
+def collect_types():
+    ghci_command = ":set +c\\n:r\\n:all-types\\n:unset +c"
+    print(ghci_command)
+    (output, errors) = dispatch(ghci_command)
+    store_types(output)
+
+def store_types(output):
+    pass
 
 def read_errors():
     errors = []
