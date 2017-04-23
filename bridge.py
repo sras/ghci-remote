@@ -5,6 +5,7 @@ import sys
 import time
 import threading
 import sys
+import queue
 
 p = subprocess.Popen(["stack", "ghci"], shell=False, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
 
@@ -17,9 +18,14 @@ ERROR_PORT = 1881
 OUTPUT_PORT = 1882
 REC_MAX_LENGTH = 4096
 DELIMETER = "COMMAND RECIEVED: {}\n"
+OUTPUT_START_DELIMETER = "{#--------------------------------- START --------------------------#}"
+OUTPUT_END_DELIMETER = "{#--------------------------------- DONE --------------------------#}"
 
 error_outfile = open("errors.txt", 'w')
 output_outfile = open("output.txt", 'w')
+
+error_queue = queue.Queue()
+output_queue = queue.Queue()
 
 def insert_delimeter(command):
     error_outfile.truncate(0)
@@ -28,7 +34,7 @@ def insert_delimeter(command):
     error_outfile.flush()
     output_outfile.truncate(0)
     error_outfile.seek(0)
-    output_outfile.write(DELIMETER.format(command))
+    #output_outfile.write(DELIMETER.format(command))
     output_outfile.flush()
 
 def output_server():
@@ -68,8 +74,24 @@ def command_server():
         (clientsocket, address) = serversocket.accept()
         command = clientsocket.recv(REC_MAX_LENGTH)
         insert_delimeter(command)
-        p.stdin.write("{}\n".format(command.decode()).encode())
+        command = ":cmd (return \" \\\"\\\" \\n \\\"{}\\\"\\n{}\\n\\\"{}\\\"\")\n".format(OUTPUT_START_DELIMETER, command.decode().strip(), OUTPUT_END_DELIMETER)
+        p.stdin.write(command.encode())
         p.stdin.flush()
+        (output, error) = read_output_and_error()
+        print(output)
+        print(error)
+
+def read_output_and_error():
+    output = []
+    while True:
+        line = p.stdout.readline()
+        if line.decode().strip() == "\"{}\"".format(OUTPUT_START_DELIMETER):
+            while True:
+                line = p.stdout.readline().decode()
+                if line.strip() == "\"{}\"".format(OUTPUT_END_DELIMETER):
+                    return ("".join(output), p.stderr.readline().decode())
+                else:
+                    output.append(line)
 
 def error_client():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -99,19 +121,19 @@ def output_client():
                 output_outfile.flush()
                 break
 
-output_server_thread = threading.Thread(target=output_server, daemon=True)
+#output_server_thread = threading.Thread(target=output_server, daemon=True)
 error_server_thread = threading.Thread(target=error_server, daemon=True)
 command_server_thread = threading.Thread(target=command_server, daemon=True)
 
 error_client_thread = threading.Thread(target=error_client, daemon=True)
-output_client_thread = threading.Thread(target=output_client, daemon=True)
+#output_client_thread = threading.Thread(target=output_client, daemon=True)
 
 error_server_thread.start();
-output_server_thread.start();
+#output_server_thread.start();
 command_server_thread.start();
 
-error_client_thread.start();
-output_client_thread.start();
+#error_client_thread.start();
+#output_client_thread.start();
 
 try:
     command_server_thread.join();
