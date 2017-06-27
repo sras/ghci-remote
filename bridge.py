@@ -18,11 +18,11 @@ OUTPUT_START_DELIMETER = "{#--------------------------------- START ------------
 OUTPUT_END_DELIMETER = "{#--------------------------------- DONE --------------------------#}"
 
 
-error_queue = queue.Queue(maxsize=100)
-output_queue = queue.Queue(maxsize=100)
+error_queue = queue.Queue(maxsize=10000)
+output_queue = queue.Queue(maxsize=10000)
 
-error_dispatch_queue = queue.Queue(maxsize=100)
-output_dispatch_queue = queue.Queue(maxsize=100)
+error_dispatch_queue = queue.Queue(maxsize=10000)
+output_dispatch_queue = queue.Queue(maxsize=10000)
 
 def output_collector():
     print("Starting output collector")
