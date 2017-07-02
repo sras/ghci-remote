@@ -46,6 +46,8 @@ def dispatch(command):
     errors = read_errors()
     return (output, errors)
 
+
+# curl -v -b `cat cookie.txt` -H "Content-Type: application/json" -X POST  http://localhost:3000/lambda/campaigns/6/prepare
 def command_server():
     serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -59,13 +61,21 @@ def command_server():
             print(command)
             ghci_command = None
             try:
-                ghci_command =  {"reload" : ":reload", "build": ":l Main", "buildtags": ":ctags"}[command] 
+                ghci_command =  {"reload" : ":reload", "build": ":l test/Spec.hs", "buildtags": ":ctags"}[command] 
             except KeyError:
                 if command == "collect_types":
                     collect_types()
+                    continue
+                elif command.find("typeat") == 0:
+                    (_, filename, line, column) = command.split(":")
+                    type_str = get_type_at(filename, (line, column))
+                    if type_str is not None:
+                        output_dispatch_queue.put_nowait(type_str)
+                    else:
+                        output_dispatch_queue.put_nowait("Was not able to find the type")
+                    continue
                 else:
-                    print("Unknown command {}".format(command))
-                continue
+                    ghci_command = command
             (output, errors) = dispatch(ghci_command)
             try:
                 error_dispatch_queue.put_nowait(errors)
@@ -84,7 +94,28 @@ def collect_types():
     store_types(output)
 
 def store_types(output):
-    pass
+    with open("types.txt", "w") as text_file:
+        text_file.write(output)
+
+def get_type_at(filename, cursor_pos):
+    with open("types.txt") as lines:
+        comps = [x.split(":") for x in lines if x.find(filename) == 0]
+        matches = []
+        for tl in comps:
+            r = is_in_range(cursor_pos, tl[1])
+            if r is not None:
+                matches.append((r, tl[2]))
+        if len(matches) > 0:
+            return (sorted(matches, key=lambda x: x[0])[0][1].strip())
+        return None
+
+def is_in_range(cursor_pos, range_str):
+    (line, column) = cursor_pos
+    [[line_start, column_start], [line_end, column_end]] = list(map(lambda x: x.strip(')').strip("(").split(','), range_str.split("-")))
+    if int(line_start) == int(line) and int(line_end) == int(line) and int(column) >= int(column_start) and int(column) <= int(column_end):
+        return int(column_end) - int(column_start)
+    else:
+        return None
 
 def read_errors():
     errors = []
