@@ -44,6 +44,8 @@ def dispatch(command):
     p.stdin.flush()
     output = read_output()
     errors = read_errors()
+    with open("output.txt", "w") as text_file:
+        text_file.write(output)
     return (output, errors)
 
 
@@ -61,12 +63,15 @@ def command_server():
             print(command)
             ghci_command = None
             try:
-                ghci_command =  {"reload" : ":reload", "build": ":l test/Spec.hs", "buildtags": ":ctags"}[command] 
+                ghci_command =  {"enabletypes": ":set +c", "disabletypes" : ":unset +c", "reload" : ":reload", "build": ":l test/Spec.hs", "buildtags": ":ctags"}[command] 
             except KeyError:
                 if command == "collect_types":
                     collect_types()
                     continue
-                elif command.find("typeat") == 0:
+                elif command.find("typeat:") == 0:
+                    (_, filename, linestart, columnstart, lineend, columnend) = command.split(":")
+                    ghci_command = ":type-at {} {} {} {} {} undefined".format(filename, linestart, columnstart, lineend, str(int(columnend)+1))
+                elif command.find("typeatusingfile:") == 0:
                     (_, filename, line, column) = command.split(":")
                     type_str = get_type_at(filename, (line, column))
                     if type_str is not None:
@@ -74,6 +79,9 @@ def command_server():
                     else:
                         output_dispatch_queue.put_nowait("Was not able to find the type")
                     continue
+                elif command.find("loadfile") == 0:
+                    (_, filename) = command.split(":")
+                    ghci_command = ":l {}".format(filename)
                 else:
                     ghci_command = command
             (output, errors) = dispatch(ghci_command)
@@ -154,6 +162,7 @@ def queue_server(queue, port):
         try:
             if len(output) == 0:
                 output = "No Output"
+
             clientsocket.sendall(output.encode())
             clientsocket.close()
         except:
