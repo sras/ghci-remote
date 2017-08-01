@@ -8,7 +8,7 @@ import sys
 import queue
 import collections
 
-p = subprocess.Popen(["stack", "ghci"], shell=False, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+p = subprocess.Popen(["stack", "ghci", "--ghci-options", "-XNoNondecreasingIndentation"], shell=False, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
 
 COMMAND_PORT = 1880
 OUTPUT_PORT = 1881
@@ -29,13 +29,19 @@ def output_collector():
     while True:
         line = p.stdout.readline().decode()
         print(line)
-        output_queue.put(line)
+        try:
+            output_queue.put_nowait(line)
+        except:
+            pass
 
 def error_collector():
     print("Starting error collector")
     while True:
         line = p.stderr.readline()
-        error_queue.put(line.decode())
+        try:
+            error_queue.put_nowait(line.decode())
+        except:
+            pass
 
 def dispatch(command):
     command = ":cmd (return \" \\\"\\\"::String \\n \\\"{}\\\"::String\\n{}\\n\\\"{}\\\"::String\")\n".format(OUTPUT_START_DELIMETER, command, OUTPUT_END_DELIMETER)
@@ -63,7 +69,7 @@ def command_server():
             print(command)
             ghci_command = None
             try:
-                ghci_command =  {"enabletypes": ":set +c", "disabletypes" : ":unset +c", "reload" : ":reload", "build": ":l test/Spec.hs", "buildtags": ":ctags"}[command] 
+                ghci_command =  {"startrapid":":l src/DevelMain", "rapidreload": "update", "enabletypes": ":set +c", "disabletypes" : ":unset +c", "reload" : ":reload", "build": ":l Main", "buildtags": ":ctags"}[command] 
             except KeyError:
                 if command == "collect_types":
                     collect_types()
