@@ -65,20 +65,7 @@ def command_server():
     while True:
         (clientsocket, address) = serversocket.accept()
         with clientsocket:
-            command = clientsocket.recv(REC_MAX_LENGTH).decode().strip()
-            print(command)
-            ghci_command = None
-            try:
-                ghci_command =  {"startrapid":":l app/DevelMain", "rapidreload": "update", "enabletypes": ":set +c", "disabletypes" : ":unset +c", "reload" : ":reload", "build": ":l Main", "buildtags": ":ctags"}[command] 
-            except KeyError:
-                if command.find("typeat:") == 0:
-                    (_, filename, linestart, columnstart, lineend, columnend) = command.split(":")
-                    ghci_command = ":type-at {} {} {} {} {} undefined".format(filename, linestart, columnstart, lineend, str(int(columnend)+1))
-                elif command.find("loadfile") == 0:
-                    (_, filename) = command.split(":")
-                    ghci_command = ":l {}".format(filename)
-                else:
-                    ghci_command = command
+            ghci_command = clientsocket.recv(REC_MAX_LENGTH).decode().strip()
             (output, errors) = dispatch(ghci_command)
             try:
                 error_dispatch_queue.put_nowait(errors)
@@ -127,7 +114,6 @@ def queue_server(queue, port):
         try:
             if len(output) == 0:
                 output = "No Output"
-
             clientsocket.sendall(output.encode())
             clientsocket.close()
         except:
