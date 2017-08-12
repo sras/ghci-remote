@@ -27,12 +27,41 @@ def display():
         else:
             print("Output recieved before {} secs".format(str(getTimeDiff())))
             print("---------------------------------------------------")
-            print(all)
+            print_stats(all)
+            if display_limit is None:
+                print(all)
+            else: 
+                if len(all) > display_limit:
+                    print(all[0:display_limit] + "\n\n" + "more...")
+                else:
+                    print(all)
         time.sleep(1)
 
 
 display_thread = threading.Thread(target=display, daemon=True)
 display_thread.start();
+
+def print_stats(content):
+    blocks = content.split("\n\n")
+    errors = 0
+    warnings = 0
+    try:
+        for b in blocks:
+            lines = b.strip().split("\n")
+            (file_name, line, column, type_,_) = lines[0].split(":")
+            type_ = type_.strip()
+            if type_ == "error":
+                errors = errors + 1
+            elif type_ == "warning":
+                warnings = warnings + 1
+        print("errors: {}, warnings : {}".format(errors, warnings))
+    except:
+        pass
+        
+if len(sys.argv) == 4:
+    display_limit = int(sys.argv[3])
+else:
+    display_limit = None
 
 while True:
     all_output = []

@@ -69,22 +69,11 @@ def command_server():
             print(command)
             ghci_command = None
             try:
-                ghci_command =  {"startrapid":":l src/DevelMain", "rapidreload": "update", "enabletypes": ":set +c", "disabletypes" : ":unset +c", "reload" : ":reload", "build": ":l Main", "buildtags": ":ctags"}[command] 
+                ghci_command =  {"startrapid":":l app/DevelMain", "rapidreload": "update", "enabletypes": ":set +c", "disabletypes" : ":unset +c", "reload" : ":reload", "build": ":l Main", "buildtags": ":ctags"}[command] 
             except KeyError:
-                if command == "collect_types":
-                    collect_types()
-                    continue
-                elif command.find("typeat:") == 0:
+                if command.find("typeat:") == 0:
                     (_, filename, linestart, columnstart, lineend, columnend) = command.split(":")
                     ghci_command = ":type-at {} {} {} {} {} undefined".format(filename, linestart, columnstart, lineend, str(int(columnend)+1))
-                elif command.find("typeatusingfile:") == 0:
-                    (_, filename, line, column) = command.split(":")
-                    type_str = get_type_at(filename, (line, column))
-                    if type_str is not None:
-                        output_dispatch_queue.put_nowait(type_str)
-                    else:
-                        output_dispatch_queue.put_nowait("Was not able to find the type")
-                    continue
                 elif command.find("loadfile") == 0:
                     (_, filename) = command.split(":")
                     ghci_command = ":l {}".format(filename)
@@ -100,36 +89,6 @@ def command_server():
             except:
                 print("Output queue full: Discarding output")
             clientsocket.sendall("ok".encode())
-
-def collect_types():
-    ghci_command = ":set +c\\n:r\\n:all-types\\n:unset +c"
-    print(ghci_command)
-    (output, errors) = dispatch(ghci_command)
-    store_types(output)
-
-def store_types(output):
-    with open("types.txt", "w") as text_file:
-        text_file.write(output)
-
-def get_type_at(filename, cursor_pos):
-    with open("types.txt") as lines:
-        comps = [x.split(":") for x in lines if x.find(filename) == 0]
-        matches = []
-        for tl in comps:
-            r = is_in_range(cursor_pos, tl[1])
-            if r is not None:
-                matches.append((r, tl[2]))
-        if len(matches) > 0:
-            return (sorted(matches, key=lambda x: x[0])[0][1].strip())
-        return None
-
-def is_in_range(cursor_pos, range_str):
-    (line, column) = cursor_pos
-    [[line_start, column_start], [line_end, column_end]] = list(map(lambda x: x.strip(')').strip("(").split(','), range_str.split("-")))
-    if int(line_start) == int(line) and int(line_end) == int(line) and int(column) >= int(column_start) and int(column) <= int(column_end):
-        return int(column_end) - int(column_start)
-    else:
-        return None
 
 def read_errors():
     errors = []
