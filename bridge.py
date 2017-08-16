@@ -7,8 +7,16 @@ import threading
 import sys
 import queue
 import collections
+import math
+try:
+    import psutil
+    has_psutil = True
+except:
+    has_psutil = False
+
 try:
     import tkinter
+    from tkinter import messagebox
     is_gui = True
 except:
     is_gui = False
@@ -72,7 +80,10 @@ def print_stats(content):
                 warnings = warnings + 1
         return("errors: {}, warnings : {}".format(errors, warnings))
     except:
-        return "Not an error/warning output"
+        if content == "":
+            return "No output"
+        else:
+            return "Not an error/warning output"
 
 def command_server():
     global seconds_since_output
@@ -93,8 +104,13 @@ def command_server():
                 errors_widget.delete("1.0", tkinter.END)
                 errors_widget.insert("0.0", print_stats(errors) + "\n")
                 errors_widget.insert(tkinter.END, errors)
-                with open(error_file_var.get(), "w") as text_file:
-                    text_file.write(errors)
+                error_file = error_file_var.get()
+                if len(error_file) > 0:
+                    try:
+                        with open(error_file, "w") as text_file:
+                            text_file.write(errors)
+                    except:
+                        tkinter.messagebox.showinfo("Error file write error", "There was an error writing errors to file {}".format(error_file))
             try:
                 error_dispatch_queue.put_nowait(errors)
             except:
@@ -163,9 +179,30 @@ def quit_ghci():
 def time_updater():
     global seconds_since_output
     while True:
-        time_string.set("Time since last output - {} Sec".format(seconds_since_output))
+        process_stat = get_ghci_process_stat()
+        time_widget.delete("1.0", tkinter.END)
+        time_widget.insert("0.0", "Time since last output - {} Sec\nGhc processes: {}".format(seconds_since_output, process_stat))
         seconds_since_output = seconds_since_output + 1
         time.sleep(1)
+
+def format_memory_info(mi):
+    return "{}".format(convert_size(mi.rss))
+
+def get_ghci_process_stat():
+    if has_psutil:
+        ghci_process = psutil.Process(p.pid)
+        return " | ".join(["pid={}, Mem = {}({}%)".format(x.pid, format_memory_info(x.memory_info()), round(x.memory_percent(), 2)) for x in psutil.process_iter() if x.name() =="ghc"])
+    else:
+        return "Not available"
+
+def convert_size(size_bytes):
+  if size_bytes == 0:
+      return "0B"
+  size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+  i = int(math.floor(math.log(size_bytes, 1024)))
+  p = math.pow(1024, i)
+  s = round(size_bytes / p, 2)
+  return "%s %s" % (s, size_name[i])
 
 start_ghci()
 
@@ -189,21 +226,21 @@ if is_gui:
     time_string = tkinter.StringVar()
     error_file_var = tkinter.StringVar()
     time_string.set("No output yet")
-    time_widget = tkinter.Label(top, bg="black", fg="#00ff00", textvariable=time_string, bd=1, highlightthickness=0)
-    time_widget.place(relx=0.0, rely=0.0, height=20, relwidth=0.5)
+    time_widget = tkinter.Text(top, bg="black", fg="#00ff00", bd=1, highlightthickness=0)
+    time_widget.place(relx=0.0, rely=0.0, height=50, relwidth=0.5)
     errors_widget = tkinter.Text(top, bg="black", fg="#00ff00", bd=1, highlightthickness=0)
-    errors_widget.place(relx=0.0, y=20, relheight=1.0, relwidth=0.5)
-    output_widget = tkinter.Text(top, bg="black", fg="#00ff00", bd=1, highlightthickness=0)
+    errors_widget.place(relx=0.0, y=50, relheight=1.0, relwidth=0.5)
+    output_widget = tkinter.Text(top, bg="black", fg="#ffffff", bd=1, highlightthickness=0)
     output_widget.place(relx=0.5, rely=0.0, relheight=0.75, relwidth=0.5)
     frame_widget = tkinter.Text(top, bg="black", fg="#00ff00", bd=1, highlightthickness=0)
     frame_widget.place(relx=0.5, rely=0.75, relheight=0.25, relwidth=0.5)
-    log_widget = tkinter.Text(frame_widget, bg="black", fg="#00ff00", bd=1, highlightthickness=0)
+    log_widget = tkinter.Text(frame_widget, bg="black", fg="#ffffff", bd=1, highlightthickness=0)
     log_widget.place(relx=0.0, rely=0.0, relheight=0.80, relwidth=1.0)
     button_frame_widget = tkinter.Text(frame_widget, bd=1, highlightthickness=0)
     button_frame_widget.place(relx=0.0, rely=0.80, relheight=0.20, relwidth=1.0)
-    error_file_widget = tkinter.Entry(button_frame_widget, fg="#000000", bg="#ffffff", textvariable=error_file_var)
+    error_file_widget = tkinter.Entry(button_frame_widget, fg="#00ff00", bg="#000000", textvariable=error_file_var)
     error_file_widget.place(relx=0.0, y=0, relheight=1.0, relwidth=0.5)
-    restart_button = tkinter.Button(button_frame_widget, fg="#000000", bg="#ffffff", text="Restart GHCI", command=restart_ghci)
+    restart_button = tkinter.Button(button_frame_widget, fg="#000000", bg="#aaaaaa", text="Restart GHCI", command=restart_ghci)
     restart_button.place(relx=0.50, y=0, relheight=1.0, relwidth=0.5)
     timer_thread = threading.Thread(target=time_updater, daemon=True)
     timer_thread.start()
