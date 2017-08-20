@@ -18,10 +18,11 @@ except:
 try:
     import tkinter
     from tkinter import messagebox
+    root = tkinter.Tk()
     is_gui = True
 except:
     is_gui = False
-    print("TkInter module not available, proceeding without gui")
+    print("TkInter module not available, or there was an error initializing it. Proceeding without gui")
 
 seconds_since_output = 0
 COMMAND_PORT = 1880
@@ -56,6 +57,8 @@ def output_collector():
                     output_queue.put_nowait(line)
                 except:
                     pass
+            else:
+                time.sleep(2)
 
 def error_collector():
     print("Starting error collector")
@@ -69,6 +72,8 @@ def error_collector():
                     error_queue.put_nowait(line.decode())
                 except:
                     pass
+            else:
+                time.sleep(2)
 
 def dispatch(command):
     command = ":cmd (return \" \\\"\\\"::String \\n \\\"{}\\\"::String\\n{}\\n\\\"{}\\\"::String\")\n".format(OUTPUT_START_DELIMETER, command, OUTPUT_END_DELIMETER)
@@ -264,7 +269,7 @@ def toggle_error_file_widget():
     else:
         error_file_widget.config(state=tkinter.NORMAL)
 
-# start_ghci()
+start_ghci()
 
 output_collector_thread = threading.Thread(target=output_collector, daemon=True)
 error_collector_thread = threading.Thread(target=error_collector, daemon=True)
@@ -280,8 +285,6 @@ output_collector_thread.start();
 command_server_thread.start();
 
 if is_gui:
-    root = tkinter.Tk()
-    root.geometry('1360x768')
     root.wm_title("GHCI Remote")
     top_pane = tkinter.PanedWindow(root, bd=0, sashpad=1, sashwidth=0, bg="#000000")
     top_pane.place(x=0, y=0,relheight=1.0, relwidth=1.0)
