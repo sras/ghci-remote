@@ -8,6 +8,7 @@ import sys
 import queue
 import collections
 import math
+import re
 try:
     import psutil
     has_psutil = True
@@ -47,8 +48,10 @@ def output_collector():
                 line = p.stdout.readline().decode()
                 print(line)
                 if is_gui:
+                    log_widget.config(state="normal")
                     log_widget.insert(tkinter.END, line)
                     log_widget.see("end")
+                    log_widget.config(state="disabled")
                 try:
                     output_queue.put_nowait(line)
                 except:
@@ -87,12 +90,15 @@ def make_error_blocks(content):
         try:
             for b in blocks:
                 lines = b.strip().split("\n")
-                (file_name, line, column, type_,_) = lines[0].split(":")
-                type_ = type_.strip()
-                if type_ == "error":
-                    errors.append(b)
-                elif type_ == "warning":
-                    warnings.append(b)
+                try:
+                    (file_name, line, column, type_,_) = lines[0].split(":")
+                    type_ = type_.strip()
+                    if type_ == "error":
+                        errors.append(b)
+                    elif type_ == "warning":
+                        warnings.append(b)
+                except:
+                    continue
         except:
             return None
     return {"errors" : errors, "warnings": warnings}
@@ -104,9 +110,10 @@ def print_stats(blocks):
         return("errors: {}, warnings : {}".format(len(blocks["errors"]), len(blocks["warnings"])))
 
 def update_errors():
+    errors_widget.config(state="normal")
     errors_widget.delete("1.0", tkinter.END)
     blocks = make_error_blocks(last_error)
-    errors_widget.insert("0.0", print_stats(blocks) + "\n")
+    errors_widget.insert("0.0", print_stats(blocks) + "\n\n")
     if blocks is not None:
         if display_errors_var.get() == 1 and display_warnings_var.get() == 1:
             errors_widget.insert(tkinter.END, last_error)
@@ -116,6 +123,7 @@ def update_errors():
             errors_widget.insert(tkinter.END, "\n\n".join(blocks["warnings"]))
     else:
         errors_widget.insert(tkinter.END, last_error)
+    errors_widget.config(state="disabled")
 
 def command_server():
     global seconds_since_output, last_error
@@ -129,13 +137,17 @@ def command_server():
         with clientsocket:
             ghci_command = clientsocket.recv(REC_MAX_LENGTH).decode().strip()
             if is_gui:
+                command_widget.config(state="normal")
                 command_widget.insert(tkinter.END, ">{}\n".format(ghci_command))
                 command_widget.see("end")
+                command_widget.config(state="disabled")
             (output, errors) = dispatch(ghci_command)
             seconds_since_output = 0;
             if is_gui:
+                output_widget.config(state="normal")
                 output_widget.delete("1.0", tkinter.END)
                 output_widget.insert("0.0", output)
+                output_widget.config(state="disabled")
                 last_error = errors
                 update_errors()
                 error_file = error_file_var.get()
@@ -218,8 +230,10 @@ def time_updater():
     global seconds_since_output
     while True:
         process_stat = get_ghci_process_stat()
+        time_widget.config(state="normal")
         time_widget.delete("1.0", tkinter.END)
         time_widget.insert("0.0", "Time since last output - {} Sec\nGhc processes: {}".format(seconds_since_output, process_stat))
+        time_widget.config(state="disabled")
         seconds_since_output = seconds_since_output + 1
         time.sleep(1)
 
@@ -282,20 +296,20 @@ if is_gui:
     error_file_lock = tkinter.IntVar()
     display_warnings_var = tkinter.IntVar()
     time_string.set("No output yet")
-    time_widget = tkinter.Text(left_pane, bg="#222222", fg="#ffffff", padx=5, pady=5, highlightthickness=0, bd=0)
+    time_widget = tkinter.Text(left_pane, bg="#222222", fg="#ffffff", padx=5, pady=5, state="disabled", highlightthickness=0, bd=0)
     time_widget.grid(padx=(10, 10), pady=(10,10))
     left_pane.add(time_widget, height=50)
     # time_widget.place(relx=0.0, rely=0.0, height=50, relwidth=1.0)
-    errors_widget = tkinter.Text(left_pane, bg="#222222", padx=5, pady=5, bd=0, fg="#00ff00",highlightthickness=0)
+    errors_widget = tkinter.Text(left_pane, bg="#222222", padx=5, pady=5, bd=0, state="disabled", fg="yellow",highlightthickness=0)
     left_pane.add(errors_widget)
     #errors_widget.place(relx=0.0, y=50, relheight=1.0, relwidth=1.0)
-    output_widget = tkinter.Text(right_pane, bd=0, padx=5, pady=5, bg="#222222", fg="#ffffff", highlightthickness=0)
+    output_widget = tkinter.Text(right_pane, bd=0, padx=5, pady=5, bg="#222222", fg="#ffffff", state="disabled", highlightthickness=0)
     right_pane.add(output_widget, height=150)   
     # output_widget.place(relx=0.0, rely=0.0, relheight=0.75, relwidth=1.0)
     # frame_widget.place(relx=1.0, rely=0.75, relheight=0.25, relwidth=1.0)
-    log_widget = tkinter.Text(right_pane, bd=0, padx=5, pady=5, bg="#222222", fg="orange", highlightthickness=0)
+    log_widget = tkinter.Text(right_pane, bd=0, padx=5, pady=5, bg="#222222", fg="#e67e22", state="disabled", highlightthickness=0)
     right_pane.add(log_widget, height=350)
-    command_widget = tkinter.Text(right_pane, padx=5, pady=5, bd=0, bg="#222222", fg="#ffffff", highlightthickness=0)
+    command_widget = tkinter.Text(right_pane, padx=5, pady=5, bd=0, bg="#222222", fg="#ffffff", state="disabled", highlightthickness=0)
     right_pane.add(command_widget, height=150)
     # log_widget.place(relx=0.0, rely=0.0, relheight=0.80, relwidth=1.0)
     bottom_pane = tkinter.Frame(right_pane, height=60, bd=0, bg="#222222")
