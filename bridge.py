@@ -18,74 +18,289 @@ except:
 try:
     import tkinter
     from tkinter import messagebox
-    root = tkinter.Tk()
-    is_gui = True
+    has_gui = True
 except:
-    is_gui = False
+    has_gui = False
     print("TkInter module not available, or there was an error initializing it. Proceeding without gui")
 
-seconds_since_output = 0
+class GRText(tkinter.Text):
+    def __init__(self, parent, *args, **kw):
+        tkinter.Text.__init__(self, parent, *args, **kw)
+        self.config(bg="#222222", padx=5, pady=5, state="disabled", highlightthickness=0, bd=0)
+
+    def replace_content(self, content, *args, **kw):
+        self.config(state="normal")
+        self.delete("1.0", tkinter.END)
+        self.insert("0.0", content, *args, **kw)
+        self.config(state="disabled")
+
+    def append_content(self, content, *args, **kw):
+        self.config(state="normal")
+        self.insert(tkinter.END, content, *args, **kw)
+        self.config(state="disabled")
+
+class GRWindow(tkinter.PanedWindow):
+    def __init__(self, parent, *args, **kw):
+        tkinter.PanedWindow.__init__(self, parent, *args, **kw)
+        self.config(width=900, bg="#000000", bd=0, sashpad=1, sashwidth=0)
+        self.pack(fill=tkinter.BOTH, expand=0)
+
+class GRLockableEntry(tkinter.Frame):
+    def __init__(self, parent, *args, **kw):
+        textvar = kw.pop('textvariable', None)
+        tkinter.Frame.__init__(self, parent, *args, **kw)
+        tv = tkinter.StringVar()
+        tv.set("Error file")
+        self.lock_status = tkinter.IntVar()
+        self.lock_status.set(0)
+        label = tkinter.Label(self, textvariable=tv, bg="#222222", fg="white")
+        self.widget_lock = tkinter.Checkbutton(self, command=self.set_entry_state, text = "Lock", variable = self.lock_status, onvalue = 1, offvalue = 0, fg="white", selectcolor="black", padx=0, highlightthickness=0, bd=0, bg="#222222")
+        self.entry_widget = tkinter.Entry(self, width=30, fg="#00ff00", bg="#000000", disabledbackground="#666666", disabledforeground="black", state=tkinter.DISABLED, textvariable=textvar, bd=0, highlightthickness=0, insertbackground="green")
+        self.entry_widget.pack(side=tkinter.LEFT, padx=5)
+        self.widget_lock.pack(side=tkinter.LEFT)
+        self.set_entry_state()
+
+    def set_entry_state(self):
+        if self.lock_status.get() == 1:
+            self.entry_widget.config(state="disabled")
+        else:
+            self.entry_widget.config(state="normal")
+
+class Gui:
+    def __init__(self, has_gui):
+        self.root = tkinter.Tk()
+        self.root.geometry("1360x768")
+        self.root.wm_title("GHCI Remote")
+        self.has_gui = has_gui
+        self.seconds_since_output = 0
+        self.time_string = tkinter.StringVar()
+        self.time_string.set("No output yet")
+        self.error_file_var = tkinter.StringVar()
+        self.display_errors_var = tkinter.IntVar()
+        self.error_file_lock = tkinter.IntVar()
+        self.display_warnings_var = tkinter.IntVar()
+        self.errors = None
+        self.ghci = None
+        self.initialize()
+
+    def set_errors(self, errors):
+        self.errors = errors
+        self.update_errors()
+
+    def set_ghci_process(self, ghci_process):
+        self.ghci = ghci_process
+
+    def start(self):
+        self.root.mainloop()
+
+    def add_log(self, content):
+        self.log_widget.append_content(content)
+        self.log_widget.see(tkinter.END)
+
+    def set_output(self, content):
+        self.output_widget.replace_content(content)
+
+    def log_command(self, content):
+        self.command_widget.append_content(content)
+        self.command_widget.see(tkinter.END)
+
+    def get_error_file(self):
+        x = self.error_file_var.get()
+        if len(x) > 0:
+            return x
+        else:
+            return None
+
+    def ghci_start(self):
+        self.ghci.start()
+    
+    def ghci_quit(self):
+        self.ghci.quit()
+    
+    def ghci_restart(self):
+        self.ghci.quit_ghci()
+        self.ghci.start()
+    
+    def initialize(self):
+        if self.has_gui:
+            top_pane = GRWindow(self.root)
+            top_pane.place(x=0, y=0,relheight=1.0, relwidth=1.0)
+            left_pane = GRWindow(top_pane, width=900, orient=tkinter.VERTICAL)
+            right_pane = GRWindow(top_pane, width=460, orient=tkinter.VERTICAL)
+            top_pane.add(left_pane)
+            top_pane.add(right_pane)
+            self.time_widget = GRText(left_pane, fg="white")
+            self.time_widget.grid(padx=(10, 10), pady=(10, 10))
+            left_pane.add(self.time_widget, height=50)
+            self.errors_widget = GRText(left_pane, fg="yellow")
+            left_pane.add(self.errors_widget)
+            self.output_widget = GRText(right_pane, fg="#ffffff")
+            right_pane.add(self.output_widget, height=150)   
+            self.log_widget = GRText(right_pane, fg="#e67e22")
+            right_pane.add(self.log_widget, height=350)
+            self.command_widget = GRText(right_pane, fg="#ffffff")
+            right_pane.add(self.command_widget, height=150)
+            bottom_pane = tkinter.Frame(right_pane, height=60, bd=0, bg="#222222")
+            button_pane = tkinter.Frame(bottom_pane, height=30, bd=0, bg="#222222")
+            right_pane.add(bottom_pane, height=60)
+            error_file_widget_wrapper = GRLockableEntry(bottom_pane, bg="#222222", textvariable=self.error_file_var)
+            restart_button = tkinter.Button(button_pane, text="Restart", command=self.ghci_restart, bg="#222222", fg="white", highlightthickness=0)
+            start_button = tkinter.Button(button_pane, text="Start", command=self.ghci_start, bg="#222222", fg="white", highlightthickness=0)
+            end_button = tkinter.Button(button_pane, text="Stop", command=self.ghci_quit, bg="#222222", fg="white", highlightthickness=0)
+            self.display_errors_checkbox = tkinter.Checkbutton(button_pane, command=self.update_errors, text = "Errors", variable = self.display_errors_var, onvalue = 1, offvalue = 0, height=30,  fg="white", selectcolor="black", padx=0, highlightthickness=0, bd=0, bg="#222222")
+            self.display_warnings_checkbox = tkinter.Checkbutton(button_pane, command=self.update_errors, text = "Warnings", variable = self.display_warnings_var, onvalue = 1, offvalue = 0, height=30, fg="white", selectcolor="black", padx=0, highlightthickness=0, bd=0, bg="#222222")
+            self.display_errors_checkbox.select()
+            self.display_warnings_checkbox.select()
+            error_file_widget_wrapper.pack(side=tkinter.TOP, pady=5, fill=tkinter.X, expand=1)
+            button_pane.pack(side=tkinter.TOP, fill=tkinter.BOTH, expand=1, pady=5)
+            restart_button.pack(side=tkinter.LEFT, padx=5)
+            start_button.pack(side=tkinter.LEFT, padx=5)
+            end_button.pack(side=tkinter.LEFT, padx=5)
+            self.display_errors_checkbox.pack(side=tkinter.LEFT, padx=5)
+            self.display_warnings_checkbox.pack(side=tkinter.LEFT, padx=5)
+            timer_thread = threading.Thread(target=self.time_updater, daemon=True)
+            timer_thread.start()
+
+    def update_errors(self):
+        blocks = make_error_blocks(self.errors)
+        stats = print_stats(blocks) + "\n\n"
+        if blocks is not None:
+            self.errors_widget.replace_content(stats)
+            if self.display_errors_var.get() == 1 and self.display_warnings_var.get() == 1:
+                self.errors_widget.append_content(self.errors)
+            elif self.display_errors_var.get() == 1:
+                self.errors_widget.append_content("\n\n".join(blocks["errors"]))
+            elif self.display_warnings_var.get() == 1:
+                self.errors_widget.append_content("\n\n".join(blocks["warnings"]))
+
+            if len(blocks['errors']) > 0:
+                self.errors_widget.config(bg="#D32F2F", fg="white")
+            elif len (blocks['warnings']) > 0:
+                self.errors_widget.config(bg="#222222", fg="yellow")
+            else:
+                self.errors_widget.config(bg="#222222", fg="white")
+        else:
+            self.errors_widget.replace_content(self.errors)
+
+    def time_updater(self):
+        while True:
+            if self.ghci is not None:
+                process_stat = self.ghci.get_process_stats()
+            else:
+                process_stat = "Not available"
+            self.time_widget.replace_content("Time since last output - {} Sec\nGhc processes: {}".format(self.seconds_since_output, process_stat))
+            self.seconds_since_output = self.seconds_since_output + 1
+            time.sleep(1)
+
+    def show_info(self):
+        if self.has_gui:
+            tkinter.messagebox.showinfo("Error!", "GHCI is still running")
+
 COMMAND_PORT = 1880
 OUTPUT_PORT = 1881
 ERROR_PORT = 1882
 REC_MAX_LENGTH = 4096
 OUTPUT_START_DELIMETER = "{#--------------------------------- START --------------------------#}"
 OUTPUT_END_DELIMETER = "{#--------------------------------- DONE --------------------------#}"
-error_queue = queue.Queue(maxsize=10000)
-output_queue = queue.Queue(maxsize=10000)
-error_dispatch_queue = queue.Queue(maxsize=10000)
-output_dispatch_queue = queue.Queue(maxsize=10000)
-last_error = None
 
 p = None
+gui = None
 
-def output_collector():
-    print("Starting output collector")
-    while True:
-        if p is None:
-            time.sleep(1)
+class GHCIProcess:
+    def __init__(self):
+        self.p = None
+        self.error_queue = queue.Queue(maxsize=10000)
+        self.output_queue = queue.Queue(maxsize=10000)
+        self.output_collector_thread = threading.Thread(target=self.output_collector, daemon=True)
+        self.error_collector_thread = threading.Thread(target=self.error_collector, daemon=True)
+        self.error_collector_thread.start();
+        self.output_collector_thread.start();
+
+    def restart(self):
+        quit_ghci()
+        start_ghci()
+
+    def start(self):
+        if self.p is not None and self.p.poll() is None:
+            return self.p
         else:
-            if p.poll() is None:
-                line = p.stdout.readline().decode()
-                print(line)
-                if is_gui:
-                    log_widget.config(state="normal")
-                    log_widget.insert(tkinter.END, line)
-                    log_widget.see("end")
-                    log_widget.config(state="disabled")
-                try:
-                    output_queue.put_nowait(line)
-                except:
-                    pass
-            else:
-                time.sleep(2)
+            self.p = subprocess.Popen(["stack", "ghci", "--ghci-options", "-XNoNondecreasingIndentation"], shell=False, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+            return None
 
-def error_collector():
-    print("Starting error collector")
-    while True:
-        if p is None:
-            time.sleep(1)
+    def quit(self):
+        if self.p is not None and self.p.poll() is None:
+            self.p.stdin.write("{}\n".format(":q\n").encode())
+            self.p.stdin.flush()
+
+    def get_process_stats(self):
+        return get_ghci_process_stat(self.p)
+
+    def output_collector(self):
+        print("Starting output collector")
+        while True:
+            if self.p is None:
+                time.sleep(1)
+            else:
+                if self.p.poll() is None:
+                    line = self.p.stdout.readline().decode()
+                    print(line)
+                    gui.add_log(line)
+                    try:
+                        self.output_queue.put_nowait(line)
+                    except:
+                        pass
+                else:
+                    time.sleep(2)
+
+    def error_collector(self):
+        print("Starting error collector")
+        while True:
+            if self.p is None:
+                time.sleep(1)
+            else:
+                if self.p.poll() is None:
+                    line = self.p.stderr.readline()
+                    try:
+                        self.error_queue.put_nowait(line.decode())
+                    except:
+                        pass
+                else:
+                    time.sleep(2)
+
+    def dispatch(self, command):
+        command = ":cmd (return \" \\\"\\\"::String \\n \\\"{}\\\"::String\\n{}\\n\\\"{}\\\"::String\")\n".format(OUTPUT_START_DELIMETER, command, OUTPUT_END_DELIMETER)
+        print(command)
+        if self.p.poll() is None:
+            self.p.stdin.write(command.encode())
+            self.p.stdin.flush()
+            output = self.read_output()
+            errors = self.read_errors()
+            return (output, errors)
         else:
-            if p.poll() is None:
-                line = p.stderr.readline()
-                try:
-                    error_queue.put_nowait(line.decode())
-                except:
-                    pass
-            else:
-                time.sleep(2)
+            return ("No ghci process running", "No ghci process running")
 
-def dispatch(command):
-    command = ":cmd (return \" \\\"\\\"::String \\n \\\"{}\\\"::String\\n{}\\n\\\"{}\\\"::String\")\n".format(OUTPUT_START_DELIMETER, command, OUTPUT_END_DELIMETER)
-    print(command)
-    if p.poll() is None:
-        p.stdin.write(command.encode())
-        p.stdin.flush()
-        output = read_output()
-        errors = read_errors()
-        return (output, errors)
-    else:
-        return ("No ghci process running", "No ghci process running")
+    def read_errors(self):
+        errors = []
+        while True:
+            try:
+                line = self.error_queue.get_nowait()
+                errors.append(line)
+            except queue.Empty:
+                return "".join(errors)
+    
+    def read_output(self):
+        output = []
+        started_flag = False
+        while True:
+            line = self.output_queue.get()
+            if line == "\"{}\"\n".format(OUTPUT_START_DELIMETER):
+                started_flag = True
+                continue
+            if started_flag:
+                if line == "\"{}\"\n".format(OUTPUT_END_DELIMETER):
+                    return "".join(output)
+                else:
+                    output.append(line)
 
 def make_error_blocks(content):
     errors = []
@@ -114,86 +329,57 @@ def print_stats(blocks):
     else:
         return("errors: {}, warnings : {}".format(len(blocks["errors"]), len(blocks["warnings"])))
 
-def update_errors():
-    errors_widget.config(state="normal")
-    errors_widget.delete("1.0", tkinter.END)
-    blocks = make_error_blocks(last_error)
-    errors_widget.insert("0.0", print_stats(blocks) + "\n\n")
-    if blocks is not None:
-        if display_errors_var.get() == 1 and display_warnings_var.get() == 1:
-            errors_widget.insert(tkinter.END, last_error)
-        elif display_errors_var.get() == 1:
-            errors_widget.insert(tkinter.END, "\n\n".join(blocks["errors"]))
-        elif display_warnings_var.get() == 1:
-            errors_widget.insert(tkinter.END, "\n\n".join(blocks["warnings"]))
-    else:
-        errors_widget.insert(tkinter.END, last_error)
-    errors_widget.config(state="disabled")
+class CommandServer:
+    def __init__(self, ghci_process, gui, command_port):
+        self.ghci_process = ghci_process
+        self.gui = gui
+        self.gui.set_ghci_process(ghci_process)
+        self.command_port = command_port
+        self.error_dispatch_queue = queue.Queue(maxsize=10000)
+        self.output_dispatch_queue = queue.Queue(maxsize=10000)
+        self.server_thread = threading.Thread(target=self.server, daemon=True)
+        self.start()
+        self.gui.start()
+        self.ghci_process.quit()
 
-def command_server():
-    global seconds_since_output, last_error
-    serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    serversocket.bind(('0.0.0.0', COMMAND_PORT))
-    serversocket.listen(5)
-    print("Starting command server")
-    while True:
-        (clientsocket, address) = serversocket.accept()
-        with clientsocket:
-            ghci_command = clientsocket.recv(REC_MAX_LENGTH).decode().strip()
-            if is_gui:
-                command_widget.config(state="normal")
-                command_widget.insert(tkinter.END, ">{}\n".format(ghci_command))
-                command_widget.see("end")
-                command_widget.config(state="disabled")
-            (output, errors) = dispatch(ghci_command)
-            seconds_since_output = 0;
-            if is_gui:
-                output_widget.config(state="normal")
-                output_widget.delete("1.0", tkinter.END)
-                output_widget.insert("0.0", output)
-                output_widget.config(state="disabled")
-                last_error = errors
-                update_errors()
-                error_file = error_file_var.get()
-                if len(error_file) > 0:
+    def start(self):
+        self.server_thread.start()
+
+    def server(self):
+        print("Starting command server")
+        self.ghci_process.start()
+        serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        serversocket.bind(('0.0.0.0', self.command_port))
+        serversocket.listen(5)
+        self.output_server_thread = threading.Thread(target=queue_server, args=(self.output_dispatch_queue, OUTPUT_PORT), daemon=True)
+        self.error_server_thread = threading.Thread(target=queue_server, args=(self.error_dispatch_queue, ERROR_PORT), daemon=True)
+        self.output_server_thread.start()
+        self.error_server_thread.start()
+        while True:
+            print("Listening..")
+            (clientsocket, address) = serversocket.accept()
+            with clientsocket:
+                ghci_command = clientsocket.recv(REC_MAX_LENGTH).decode().strip()
+                self.gui.log_command(">{}\n".format(ghci_command))
+                (output, errors) = self.ghci_process.dispatch(ghci_command)
+                self.gui.set_output(output)
+                self.gui.set_errors(errors)
+                if gui.get_error_file() is not None:
                     try:
-                        with open(error_file, "w") as text_file:
+                        with open(gui.get_error_file(), "w") as text_file:
                             text_file.write(errors)
                     except:
                         tkinter.messagebox.showinfo("Error file write error", "There was an error writing errors to file {}".format(error_file))
-            try:
-                error_dispatch_queue.put_nowait(errors)
-            except:
-                print("Error queue full: Discarding error")
-            try:
-                output_dispatch_queue.put_nowait(output)
-            except:
-                print("Output queue full: Discarding output")
-            clientsocket.sendall("ok".encode())
-
-def read_errors():
-    errors = []
-    while True:
-        try:
-            line = error_queue.get_nowait()
-            errors.append(line)
-        except queue.Empty:
-            return "".join(errors)
-
-def read_output():
-    output = []
-    started_flag = False
-    while True:
-        line = output_queue.get()
-        if line == "\"{}\"\n".format(OUTPUT_START_DELIMETER):
-            started_flag = True
-            continue
-        if started_flag:
-            if line == "\"{}\"\n".format(OUTPUT_END_DELIMETER):
-                return "".join(output)
-            else:
-                output.append(line)
+                try:
+                    self.error_dispatch_queue.put_nowait(errors)
+                except:
+                    print("Error queue full: Discarding error")
+                try:
+                    self.output_dispatch_queue.put_nowait(output)
+                except:
+                    print("Output queue full: Discarding output")
+                clientsocket.sendall("ok".encode())
 
 def queue_server(queue, port):
     serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -214,38 +400,10 @@ def queue_server(queue, port):
         except:
             print("Exception while sending to client")
 
-def restart_ghci():
-    global p
-    quit_ghci()
-    start_ghci()
-
-def start_ghci():
-    global p
-    if p is not None and p.poll() is None:
-        tkinter.messagebox.showinfo("Error!", "GHCI is still running")
-    else:
-        p = subprocess.Popen(["stack", "ghci", "--ghci-options", "-XNoNondecreasingIndentation"], shell=False, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-
-def quit_ghci():
-    if p is not None and p.poll() is None:
-        p.stdin.write("{}\n".format(":q\n").encode())
-        p.stdin.flush()
-
-def time_updater():
-    global seconds_since_output
-    while True:
-        process_stat = get_ghci_process_stat()
-        time_widget.config(state="normal")
-        time_widget.delete("1.0", tkinter.END)
-        time_widget.insert("0.0", "Time since last output - {} Sec\nGhc processes: {}".format(seconds_since_output, process_stat))
-        time_widget.config(state="disabled")
-        seconds_since_output = seconds_since_output + 1
-        time.sleep(1)
-
 def format_memory_info(mi):
     return "{}".format(convert_size(mi.rss))
 
-def get_ghci_process_stat():
+def get_ghci_process_stat(p):
     if has_psutil:
         try:
             return " | ".join(["pid={}{}, Mem = {}({}%)".format(x.pid, "*" if x.ppid() == p.pid else "", format_memory_info(x.memory_info()), round(x.memory_percent(), 2)) for x in psutil.process_iter() if x.name() =="ghc"])
@@ -263,95 +421,5 @@ def convert_size(size_bytes):
   s = round(size_bytes / p, 2)
   return "%s %s" % (s, size_name[i])
 
-def toggle_error_file_widget():
-    if error_file_lock.get() == 1:
-        error_file_widget.config(state=tkinter.DISABLED)
-    else:
-        error_file_widget.config(state=tkinter.NORMAL)
-
-start_ghci()
-
-output_collector_thread = threading.Thread(target=output_collector, daemon=True)
-error_collector_thread = threading.Thread(target=error_collector, daemon=True)
-command_server_thread = threading.Thread(target=command_server, daemon=True)
-output_server_thread = threading.Thread(target=queue_server, args=(output_dispatch_queue, OUTPUT_PORT), daemon=True)
-error_server_thread = threading.Thread(target=queue_server, args=(error_dispatch_queue, ERROR_PORT), daemon=True)
-
-output_server_thread.start();
-error_server_thread.start();
-
-error_collector_thread.start();
-output_collector_thread.start();
-command_server_thread.start();
-
-if is_gui:
-    root.wm_title("GHCI Remote")
-    top_pane = tkinter.PanedWindow(root, bd=0, sashpad=1, sashwidth=0, bg="#000000")
-    top_pane.place(x=0, y=0,relheight=1.0, relwidth=1.0)
-    left_pane = tkinter.PanedWindow(top_pane, width=900, bg="#000000", bd=0, sashpad=1, sashwidth=0, orient=tkinter.VERTICAL)
-    right_pane = tkinter.PanedWindow(top_pane, width=460, bg="#000000", bd=0, sashpad=1, sashwidth=0, orient=tkinter.VERTICAL)
-    right_pane.pack(fill=tkinter.BOTH, expand=0)
-    top_pane.add(left_pane)
-    top_pane.add(right_pane)
-    time_string = tkinter.StringVar()
-    error_file_var = tkinter.StringVar()
-    display_errors_var = tkinter.IntVar()
-    error_file_lock = tkinter.IntVar()
-    display_warnings_var = tkinter.IntVar()
-    time_string.set("No output yet")
-    time_widget = tkinter.Text(left_pane, bg="#222222", fg="#ffffff", padx=5, pady=5, state="disabled", highlightthickness=0, bd=0)
-    time_widget.grid(padx=(10, 10), pady=(10,10))
-    left_pane.add(time_widget, height=50)
-    # time_widget.place(relx=0.0, rely=0.0, height=50, relwidth=1.0)
-    errors_widget = tkinter.Text(left_pane, bg="#222222", padx=5, pady=5, bd=0, state="disabled", fg="yellow",highlightthickness=0)
-    left_pane.add(errors_widget)
-    #errors_widget.place(relx=0.0, y=50, relheight=1.0, relwidth=1.0)
-    output_widget = tkinter.Text(right_pane, bd=0, padx=5, pady=5, bg="#222222", fg="#ffffff", state="disabled", highlightthickness=0)
-    right_pane.add(output_widget, height=150)   
-    # output_widget.place(relx=0.0, rely=0.0, relheight=0.75, relwidth=1.0)
-    # frame_widget.place(relx=1.0, rely=0.75, relheight=0.25, relwidth=1.0)
-    log_widget = tkinter.Text(right_pane, bd=0, padx=5, pady=5, bg="#222222", fg="#e67e22", state="disabled", highlightthickness=0)
-    right_pane.add(log_widget, height=350)
-    command_widget = tkinter.Text(right_pane, padx=5, pady=5, bd=0, bg="#222222", fg="#ffffff", state="disabled", highlightthickness=0)
-    right_pane.add(command_widget, height=150)
-    # log_widget.place(relx=0.0, rely=0.0, relheight=0.80, relwidth=1.0)
-    bottom_pane = tkinter.Frame(right_pane, height=60, bd=0, bg="#222222")
-    button_pane = tkinter.Frame(bottom_pane, height=30, bd=0, bg="#222222")
-    right_pane.add(bottom_pane, height=60)
-    # button_frame_widget.place(relx=0.0, rely=0.80, relheight=0.20, relwidth=1.0)
-    error_file_widget_wrapper = tkinter.Frame(bottom_pane, bg="#222222")
-    tv = tkinter.StringVar()
-    tv.set("Error file")
-    label = tkinter.Label(error_file_widget_wrapper, textvariable=tv, bg="#222222", fg="white")
-    c3 = tkinter.Checkbutton(error_file_widget_wrapper, command=toggle_error_file_widget, text = "Lock", variable = error_file_lock, onvalue = 1, offvalue = 0, fg="white", selectcolor="black", padx=0, highlightthickness=0, bd=0, bg="#222222")
-    error_file_widget = tkinter.Entry(error_file_widget_wrapper, width=30, fg="#00ff00", bg="#000000", disabledbackground="#666666", disabledforeground="black", state=tkinter.DISABLED, textvariable=error_file_var, bd=0, highlightthickness=0, insertbackground="green")
-    label.pack(side=tkinter.LEFT)
-    error_file_widget.pack(side=tkinter.LEFT, padx=5)
-    c3.pack(side=tkinter.LEFT)
-    restart_button = tkinter.Button(button_pane, text="Restart", command=restart_ghci, bg="#222222", fg="white", highlightthickness=0)
-    start_button = tkinter.Button(button_pane, text="Start", command=start_ghci, bg="#222222", fg="white", highlightthickness=0)
-    end_button = tkinter.Button(button_pane, text="Stop", command=quit_ghci, bg="#222222", fg="white", highlightthickness=0)
-    c1 = tkinter.Checkbutton(button_pane, command=update_errors, text = "Errors", variable = display_errors_var, onvalue = 1, offvalue = 0, height=30,  fg="white", selectcolor="black", padx=0, highlightthickness=0, bd=0, bg="#222222")
-    c2 = tkinter.Checkbutton(button_pane, command=update_errors, text = "Warnings", variable = display_warnings_var, onvalue = 1, offvalue = 0, height=30, fg="white", selectcolor="black", padx=0, highlightthickness=0, bd=0, bg="#222222")
-    #button_pane.add(restart_button)
-    c1.select()
-    c2.select()
-    c3.select()
-    error_file_widget_wrapper.pack(side=tkinter.TOP, pady=5, fill=tkinter.X, expand=1)
-    button_pane.pack(side=tkinter.TOP, fill=tkinter.BOTH, expand=1, pady=5)
-    restart_button.pack(side=tkinter.LEFT, padx=5)
-    start_button.pack(side=tkinter.LEFT, padx=5)
-    end_button.pack(side=tkinter.LEFT, padx=5)
-    c1.pack(side=tkinter.LEFT, padx=5)
-    c2.pack(side=tkinter.LEFT, padx=5)
-    timer_thread = threading.Thread(target=time_updater, daemon=True)
-    timer_thread.start()
-    root.mainloop()
-    quit_ghci()
-else:
-    try:
-        command_server_thread.join();
-    except KeyboardInterrupt:
-        p.stdin.write("{}\n".format(":q\n").encode())
-        p.stdin.flush()
-        sys.exit()
+gui = Gui(has_gui)
+command_server = CommandServer(GHCIProcess(), gui, COMMAND_PORT)
