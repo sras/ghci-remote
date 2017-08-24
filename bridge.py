@@ -23,6 +23,25 @@ except:
     has_gui = False
     print("TkInter module not available, or there was an error initializing it. Proceeding without gui")
 
+try:
+    from neovim import attach
+    has_neovim = True
+except:
+    has_neovim = False
+
+error_re = re.compile(r'(.*):(\d+):(\d+): (warning|error):')
+neovim_socket = None
+
+def open_file_and_go_to_line_column(file_name, line, col):
+    print(file_name, line, col)
+    if has_neovim and neovim_socket is not None:
+        nvim = attach('socket', path=neovim_socket)
+        nvim.command('e +{} {}'.format(line, file_name))
+
+def get_filename_line_col_from_error(content):
+    m = error_re.search(content)
+    return m.group(1,2,3)
+
 class GRText(tkinter.Text):
     def __init__(self, parent, *args, **kw):
         tkinter.Text.__init__(self, parent, *args, **kw)
@@ -37,6 +56,27 @@ class GRText(tkinter.Text):
     def append_content(self, content, *args, **kw):
         self.config(state="normal")
         self.insert(tkinter.END, content, *args, **kw)
+        self.config(state="disabled")
+
+class GRErrorContainer(GRText):
+    def __init__(self, parent, *args, **kw):
+        GRText.__init__(self, parent, *args, **kw)
+        self.link_ix = 0
+
+    def replace_content(self, content, *args, **kw):
+        GRText.replace_content(self, content, *args, **kw)
+        self.link_ix = 0
+
+    def append_error(self, error, *args, **kw):
+        self.config(state="normal")
+        tag_name = 'link_tag_{}'.format(self.link_ix)
+        self.link_ix = self.link_ix + 1
+        self.tag_configure(tag_name)
+        (file_name, line, col) = get_filename_line_col_from_error(error)
+        self.tag_bind(tag_name, "<1>", lambda event: open_file_and_go_to_line_column(file_name, line, col))
+        self.tag_bind(tag_name, "<Enter>", lambda event: self.configure(cursor="hand1"))
+        self.tag_bind(tag_name, "<Leave>", lambda event: self.configure(cursor="arrow"))
+        self.insert(tkinter.END, error, tag_name)
         self.config(state="disabled")
 
 class GRWindow(tkinter.PanedWindow):
@@ -98,6 +138,7 @@ class Gui:
         self.log_widget.see(tkinter.END)
 
     def set_output(self, content):
+        self.seconds_since_output = 0
         self.output_widget.replace_content(content)
 
     def log_command(self, content):
@@ -132,7 +173,7 @@ class Gui:
             self.time_widget = GRText(left_pane, fg="white")
             self.time_widget.grid(padx=(10, 10), pady=(10, 10))
             left_pane.add(self.time_widget, height=50)
-            self.errors_widget = GRText(left_pane, fg="yellow")
+            self.errors_widget = GRErrorContainer(left_pane, fg="yellow")
             left_pane.add(self.errors_widget)
             self.output_widget = GRText(right_pane, fg="#ffffff")
             right_pane.add(self.output_widget, height=150)   
@@ -164,23 +205,22 @@ class Gui:
     def update_errors(self):
         blocks = make_error_blocks(self.errors)
         stats = print_stats(blocks) + "\n\n"
-        if blocks is not None:
-            self.errors_widget.replace_content(stats)
-            if self.display_errors_var.get() == 1 and self.display_warnings_var.get() == 1:
-                self.errors_widget.append_content(self.errors)
-            elif self.display_errors_var.get() == 1:
-                self.errors_widget.append_content("\n\n".join(blocks["errors"]))
-            elif self.display_warnings_var.get() == 1:
-                self.errors_widget.append_content("\n\n".join(blocks["warnings"]))
-
-            if len(blocks['errors']) > 0:
-                self.errors_widget.config(bg="#D32F2F", fg="white")
-            elif len (blocks['warnings']) > 0:
-                self.errors_widget.config(bg="#222222", fg="yellow")
-            else:
-                self.errors_widget.config(bg="#222222", fg="white")
+        self.errors_widget.replace_content(stats)
+        if self.display_errors_var.get() == 1:
+            for b in blocks["errors"]:
+                self.errors_widget.append_error(b)
+                self.errors_widget.append_content("\n\n")
+        if self.display_warnings_var.get() == 1:
+            for b in blocks["warnings"]:
+                self.errors_widget.append_error(b)
+                self.errors_widget.append_content("\n\n")
+        if len(blocks['errors']) > 0:
+            self.errors_widget.config(bg="#D32F2F", fg="white")
+        elif len (blocks['warnings']) > 0:
+            self.errors_widget.config(bg="#222222", fg="yellow")
         else:
-            self.errors_widget.replace_content(self.errors)
+            self.errors_widget.config(bg="#222222", fg="white")
+            self.errors_widget.append_content(self.errors)
 
     def time_updater(self):
         while True:
@@ -307,20 +347,17 @@ def make_error_blocks(content):
     warnings = []
     if content is not None and len(content) > 0:
         blocks = content.split("\n\n")
-        try:
-            for b in blocks:
-                lines = b.strip().split("\n")
-                try:
-                    (file_name, line, column, type_,_) = lines[0].split(":")
-                    type_ = type_.strip()
-                    if type_ == "error":
-                        errors.append(b)
-                    elif type_ == "warning":
-                        warnings.append(b)
-                except:
-                    continue
-        except:
-            return None
+        for b in blocks:
+            lines = b.strip().split("\n")
+            try:
+                (file_name, line, column, type_,_) = lines[0].split(":")
+                type_ = type_.strip()
+                if type_ == "error":
+                    errors.append(b)
+                elif type_ == "warning":
+                    warnings.append(b)
+            except:
+                continue
     return {"errors" : errors, "warnings": warnings}
 
 def print_stats(blocks):
@@ -362,6 +399,10 @@ class CommandServer:
             with clientsocket:
                 ghci_command = clientsocket.recv(REC_MAX_LENGTH).decode().strip()
                 self.gui.log_command(">{}\n".format(ghci_command))
+                if ghci_command[0:7] == 'socket=':
+                    global neovim_socket
+                    [_, neovim_socket] = ghci_command.split('=')
+                    continue
                 (output, errors) = self.ghci_process.dispatch(ghci_command)
                 self.gui.set_output(output)
                 self.gui.set_errors(errors)
