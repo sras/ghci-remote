@@ -33,10 +33,9 @@ error_re = re.compile(r'(.*):(\d+):(\d+): (warning|error):')
 neovim_socket = None
 
 def open_file_and_go_to_line_column(file_name, line, col):
-    print(file_name, line, col)
     if has_neovim and neovim_socket is not None:
         nvim = attach('socket', path=neovim_socket)
-        nvim.command('e +{} {}'.format(line, file_name))
+        nvim.command('e +{} {}'.format(r'call\ cursor({},{})|execute\ "normal"\ "V"'.format(line, col), file_name))
 
 def get_filename_line_col_from_error(content):
     m = error_re.search(content)
