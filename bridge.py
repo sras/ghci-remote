@@ -29,7 +29,7 @@ try:
 except:
     has_neovim = False
 
-error_re = re.compile(r'(.*):(\d+):(\d+): (warning|error):')
+error_re = re.compile(r' (.*):(\d+):(\d+): (warning|error):')
 neovim_socket = None
 
 def open_file_and_go_to_line_column(file_name, line, col):
@@ -39,7 +39,10 @@ def open_file_and_go_to_line_column(file_name, line, col):
 
 def get_filename_line_col_from_error(content):
     m = error_re.search(content)
-    return m.group(1,2,3)
+    if m is not None:
+        return m.group(1,2,3)
+    else:
+        return None
 
 class GRText(tkinter.Text):
     def __init__(self, parent, *args, **kw):
@@ -71,11 +74,15 @@ class GRErrorContainer(GRText):
         tag_name = 'link_tag_{}'.format(self.link_ix)
         self.link_ix = self.link_ix + 1
         self.tag_configure(tag_name)
-        (file_name, line, col) = get_filename_line_col_from_error(error)
-        self.tag_bind(tag_name, "<1>", lambda event: open_file_and_go_to_line_column(file_name, line, col))
-        self.tag_bind(tag_name, "<Enter>", lambda event: self.configure(cursor="hand1"))
-        self.tag_bind(tag_name, "<Leave>", lambda event: self.configure(cursor="arrow"))
-        self.insert(tkinter.END, error, tag_name)
+        file_loc = get_filename_line_col_from_error(error)
+        if file_loc is not None:
+            (file_name, line, col) = file_loc
+            self.tag_bind(tag_name, "<1>", lambda event: open_file_and_go_to_line_column(file_name, line, col))
+            self.tag_bind(tag_name, "<Enter>", lambda event: self.configure(cursor="hand1"))
+            self.tag_bind(tag_name, "<Leave>", lambda event: self.configure(cursor="arrow"))
+            self.insert(tkinter.END, error, tag_name)
+        else:
+            self.insert(tkinter.END, error)
         self.config(state="disabled")
 
 class GRWindow(tkinter.PanedWindow):
@@ -206,12 +213,12 @@ class Gui:
         stats = print_stats(blocks) + "\n\n"
         self.errors_widget.replace_content(stats)
         if self.display_errors_var.get() == 1:
-            for b in blocks["errors"]:
-                self.errors_widget.append_error(b)
+            for (idx, b) in enumerate(blocks["errors"]):
+                self.errors_widget.append_error("{}. {}".format(idx + 1, b.strip()))
                 self.errors_widget.append_content("\n\n")
         if self.display_warnings_var.get() == 1:
-            for b in blocks["warnings"]:
-                self.errors_widget.append_error(b)
+            for (idx, b) in enumerate(blocks["warnings"]):
+                self.errors_widget.append_error("{}. {}".format(idx + 1, b.strip()))
                 self.errors_widget.append_content("\n\n")
         if len(blocks['errors']) > 0:
             self.errors_widget.config(bg="#D32F2F", fg="white")
@@ -238,6 +245,7 @@ class Gui:
 COMMAND_PORT = 1880
 OUTPUT_PORT = 1881
 ERROR_PORT = 1882
+LOG_PORT = 1883
 REC_MAX_LENGTH = 4096
 OUTPUT_START_DELIMETER = "{#--------------------------------- START --------------------------#}"
 OUTPUT_END_DELIMETER = "{#--------------------------------- DONE --------------------------#}"
@@ -254,10 +262,14 @@ class GHCIProcess:
         self.error_collector_thread = threading.Thread(target=self.error_collector, daemon=True)
         self.error_collector_thread.start();
         self.output_collector_thread.start();
+        self.log_dispatch_queue = None
 
     def restart(self):
         quit_ghci()
         start_ghci()
+
+    def set_log_queue(self, log_queue):
+        self.log_dispatch_queue = log_queue
 
     def start(self):
         if self.p is not None and self.p.poll() is None:
@@ -283,6 +295,8 @@ class GHCIProcess:
                 if self.p.poll() is None:
                     line = self.p.stdout.readline().decode()
                     print(line)
+                    if self.log_dispatch_queue is not None:
+                        self.log_dispatch_queue.put_nowait(line)
                     gui.add_log(line)
                     try:
                         self.output_queue.put_nowait(line)
@@ -307,7 +321,7 @@ class GHCIProcess:
                     time.sleep(2)
 
     def dispatch(self, command):
-        command = ":cmd (return \" \\\"\\\"::String \\n \\\"{}\\\"::String\\n{}\\n\\\"{}\\\"::String\")\n".format(OUTPUT_START_DELIMETER, command, OUTPUT_END_DELIMETER)
+        command = ":cmd (return \" \\\"\\\"::String \\n \\\"{}\\\"::String\\n{}\\n\\\"{}\\\"::String\")\n".format(OUTPUT_START_DELIMETER, command.replace('"', '\\"'), OUTPUT_END_DELIMETER)
         print(command)
         if self.p.poll() is None:
             self.p.stdin.write(command.encode())
@@ -373,7 +387,9 @@ class CommandServer:
         self.command_port = command_port
         self.error_dispatch_queue = queue.Queue(maxsize=10000)
         self.output_dispatch_queue = queue.Queue(maxsize=10000)
+        self.log_dispatch_queue = queue.Queue(maxsize=10000)
         self.server_thread = threading.Thread(target=self.server, daemon=True)
+        self.ghci_process.set_log_queue(self.log_dispatch_queue)
         self.start()
         self.gui.start()
         self.ghci_process.quit()
@@ -390,8 +406,10 @@ class CommandServer:
         serversocket.listen(5)
         self.output_server_thread = threading.Thread(target=queue_server, args=(self.output_dispatch_queue, OUTPUT_PORT), daemon=True)
         self.error_server_thread = threading.Thread(target=queue_server, args=(self.error_dispatch_queue, ERROR_PORT), daemon=True)
+        self.log_server_thread = threading.Thread(target=queue_server, args=(self.log_dispatch_queue, LOG_PORT), daemon=True)
         self.output_server_thread.start()
         self.error_server_thread.start()
+        self.log_server_thread.start()
         while True:
             print("Listening..")
             (clientsocket, address) = serversocket.accept()
@@ -421,6 +439,8 @@ class CommandServer:
                     print("Output queue full: Discarding output")
                 clientsocket.sendall("ok".encode())
 
+count = 0;
+
 def queue_server(queue, port):
     serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -429,16 +449,19 @@ def queue_server(queue, port):
     while True:
         print("Listening at {}".format(port))
         (clientsocket, address) = serversocket.accept()
-        print("Client connected")
-        output = queue.get()
-        print("Sending output")
+        while True:
+            try:
+                output = queue.get(timeout=1)
+                break
+            except:
+                continue
         try:
             if len(output) == 0:
                 output = "No Output"
             clientsocket.sendall(output.encode())
             clientsocket.close()
         except:
-            print("Exception while sending to client")
+            clientsocket.close()
 
 def format_memory_info(mi):
     return "{}".format(convert_size(mi.rss))
