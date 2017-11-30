@@ -35,7 +35,16 @@ neovim_socket = None
 def open_file_and_go_to_line_column(file_name, line, col):
     if has_neovim and neovim_socket is not None:
         nvim = attach('socket', path=neovim_socket)
-        nvim.command('e +{} {}'.format(r'call\ cursor({},{})|execute\ "normal"\ "V"'.format(line, col), file_name))
+        try:
+            nvim.command('e +{} {}'.format(r'call\ cursor({},{})|execute\ "normal"\ "V"'.format(line, col), file_name))
+        except:
+            pass
+
+def open_completion(offset, completions):
+    if has_neovim and neovim_socket is not None:
+        nvim = attach('socket', path=neovim_socket)
+        print("call complete(col('.') - {}, {})".format(offset, str(completions)))
+        nvim.command("call complete(col('.') - {}, {})".format(offset, str(completions)))
 
 def get_filename_line_col_from_error(content):
     m = error_re.search(content)
@@ -208,6 +217,12 @@ class Gui:
             timer_thread = threading.Thread(target=self.time_updater, daemon=True)
             timer_thread.start()
 
+    def is_errors_enabled(self):
+        return self.display_errors_var.get()
+
+    def is_warnings_enabled(self):
+        return self.display_warnings_var.get()
+
     def update_errors(self):
         blocks = make_error_blocks(self.errors)
         stats = print_stats(blocks) + "\n\n"
@@ -275,7 +290,11 @@ class GHCIProcess:
         if self.p is not None and self.p.poll() is None:
             return self.p
         else:
-            self.p = subprocess.Popen(["stack", "ghci", "--ghci-options", "-XNoNondecreasingIndentation"], shell=False, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+            if len(sys.argv) == 2:
+                params = ["stack", "ghci", "--ghci-options", "-XNoNondecreasingIndentation", "--main-is", sys.argv[1]]
+            else:
+                params = ["stack", "ghci", "--ghci-options", "-XNoNondecreasingIndentation"]
+            self.p = subprocess.Popen(params, shell=False, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
             return None
 
     def quit(self):
@@ -292,17 +311,19 @@ class GHCIProcess:
             if self.p is None:
                 time.sleep(1)
             else:
-                if self.p.poll() is None:
+                rc = self.p.poll()
+                if rc is None:
                     line = self.p.stdout.readline().decode()
                     print(line)
-                    if self.log_dispatch_queue is not None:
-                        self.log_dispatch_queue.put_nowait(line)
                     gui.add_log(line)
                     try:
+                        if self.log_dispatch_queue is not None:
+                            self.log_dispatch_queue.put_nowait(line)
                         self.output_queue.put_nowait(line)
                     except:
                         pass
                 else:
+                    print("Thread exited. Code : {}".format(rc))
                     time.sleep(2)
 
     def error_collector(self):
@@ -421,12 +442,30 @@ class CommandServer:
                     [_, neovim_socket] = ghci_command.split('=')
                     continue
                 (output, errors) = self.ghci_process.dispatch(ghci_command)
+                if ghci_command[0:9] == ':complete':
+                    try:
+                        key_len = len(ghci_command.split(' ')[2].strip('"'))
+                        print("Len = {}".format(key_len))
+                        open_completion(key_len, [x.strip('"') for x in output.split("\n")[1:]])
+                    except:
+                       pass 
                 self.gui.set_output(output)
                 self.gui.set_errors(errors)
                 if gui.get_error_file() is not None:
                     try:
                         with open(gui.get_error_file(), "w") as text_file:
-                            text_file.write(errors)
+                            if gui.is_errors_enabled() and gui.is_warnings_enabled():
+                                text_file.write(errors)
+                            elif gui.is_errors_enabled():
+                                blocks = make_error_blocks(errors)
+                                for (idx, b) in enumerate(blocks["errors"]):
+                                    text_file.write(b.strip())
+                                    text_file.write("\n\n")
+                            elif gui.is_warnings_enabled():
+                                blocks = make_error_blocks(errors)
+                                for (idx, b) in enumerate(blocks["warnings"]):
+                                    text_file.write(b.strip())
+                                    text_file.write("\n\n")
                     except:
                         tkinter.messagebox.showinfo("Error file write error", "There was an error writing errors to file {}".format(error_file))
                 try:
