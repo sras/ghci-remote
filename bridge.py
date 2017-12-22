@@ -294,7 +294,7 @@ class GHCIProcess:
                 params = ["stack", "ghci", "--main-is", sys.argv[1], "--ghc-options", "-XNoNondecreasingIndentation", "--ghci-options", "+RTS -M2G -RTS"]
             else:
                 params = ["stack", "ghci", "--ghc-options", "-XNoNondecreasingIndentation", "--ghci-options", "+RTS -M2G -RTS"]
-            self.p = subprocess.Popen(params, shell=True, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.p = subprocess.Popen(params, shell=False, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
             return None
 
     def quit(self):
