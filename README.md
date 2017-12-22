@@ -52,6 +52,8 @@ function! LiveCompile()
 endfunction
 ```
 
-
+Also, there is a small text input box at the bottom right of the gui. If you enter a file path there, like /tmp/errors.txt, the 
+script will write the errors captured from the output into that file. And you can use your editors native mechanism to navigate
+the error list files to jump throught the errors.
 
 
