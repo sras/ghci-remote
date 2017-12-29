@@ -301,15 +301,9 @@ class GHCIProcess:
     def thread_callback(self):
         self.p = pexpect.spawn("stack", ["ghci"] + sys.argv[1:], encoding=sys.stdout.encoding)
         self.p.logfile_read = sys.stdout
-        while True: # Log the initial loading output
-            index = self.p.expect_exact(['\r\n','Loaded GHCi configuration'], timeout=60)
-            if index == 0:
-                gui.add_log(ansi_escape.sub('', self.p.before) + '\n')
-                continue
-            elif index == 1:
-                gui.add_log("Got loaded config")
-                break
-        self.p.expect(['>'], timeout=1000)
+        index = self.p.expect_exact(['Loaded GHCi configuration'], timeout=1000)
+        gui.add_log("Got loaded config")
+        self.p.expect_exact(['>'], timeout=1000)
         while True: # command execution loop
             gui.clear_log()
             gui.add_log("Waiting for command...")
@@ -320,16 +314,8 @@ class GHCIProcess:
             self.p.expect_exact([OUTPUT_START_DELIMETER + "\"\r\n", pexpect.EOF, pexpect.TIMEOUT], timeout=1000)
             gui.clear_log()
             outlines = []
-            while True: # log output of the command
-                index = self.p.expect_exact(["\r\n", "\""+OUTPUT_END_DELIMETER, pexpect.EOF, pexpect.TIMEOUT], timeout=1000)
-                if index == 0:
-                    out_line = self.p.before
-                    outlines.append(out_line + "\n")
-                    gui.add_log(out_line)
-                    continue
-                else:
-                    break
-            output =  '\n'.join(outlines)
+            self.p.expect_exact(["\""+OUTPUT_END_DELIMETER, pexpect.EOF, pexpect.TIMEOUT], timeout=1000)
+            output = self.p.before.replace('\r\n', '\n')
             gui.set_errors(output)
             gui.set_output(output)
             self.p.expect([pexpect.EOF, pexpect.TIMEOUT], timeout=1)
