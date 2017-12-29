@@ -295,15 +295,30 @@ class GHCIProcess:
     def thread_callback(self):
         self.p = pexpect.spawn("stack", ["ghci"] + sys.argv[1:], encoding=sys.stdout.encoding)
         self.p.logfile_read = sys.stdout
-        self.p.expect(['Loaded GHCi configuration'], timeout=1000)
+        while True: # Log the initial loading output
+            index = self.p.expect_exact(['\r\n','Loaded GHCi configuration'], timeout=60)
+            if index == 0:
+                gui.add_log(ansi_escape.sub('', self.p.before) + '\n')
+                continue
+            else:
+                break
         self.p.expect(['>'], timeout=1000)
-        while True:
+        while True: # command execution loop
             command = self.format_command(self.command_queue.get())
             self.p.sendline(command)
-            self.p.expect([OUTPUT_START_DELIMETER + "\"\r\n", pexpect.EOF, pexpect.TIMEOUT], timeout=1000)
-            self.p.expect(["\""+OUTPUT_END_DELIMETER, pexpect.EOF, pexpect.TIMEOUT], timeout=1000)
-            gui.set_errors(self.p.before)
-            gui.set_output(self.p.before)
+            self.p.expect_exact([OUTPUT_START_DELIMETER + "\"\r\n", pexpect.EOF, pexpect.TIMEOUT], timeout=1000)
+            outlines = []
+            while True: # log output of the command
+                index = self.p.expect_exact(["\r\n", "\""+OUTPUT_END_DELIMETER, pexpect.EOF, pexpect.TIMEOUT], timeout=1000)
+                if index == 0:
+                    outlines.append(self.p.before)
+                    gui.add_log(self.p.before)
+                    continue
+                else:
+                    break
+            output =  '\n'.join(outlines)
+            gui.set_errors(output)
+            gui.set_output(output)
             self.p.expect([pexpect.EOF, pexpect.TIMEOUT], timeout=1)
 
     def format_command(self, command):
@@ -332,16 +347,16 @@ def make_error_blocks(content):
     errors = []
     warnings = []
     if content is not None and len(content) > 0:
-        blocks = content.split("\r\n\r\n")
+        blocks = content.split("\n\n")
         for b in blocks:
-            lines = b.strip().split("\r\n")
+            lines = b.strip().split("\n")
             try:
                 (file_name, line, column, type_,_) = lines[0].split(":")
                 type_ = type_.strip()
                 if type_ == "error":
-                    errors.append('\n'.join(lines))
+                    errors.append(b)
                 elif type_ == "warning":
-                    warnings.append('\n'.join(lines))
+                    warnings.append(b)
             except:
                 continue
     return {"errors" : errors, "warnings": warnings}
