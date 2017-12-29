@@ -9,6 +9,12 @@ import queue
 import collections
 import math
 import re
+import pipes
+import os
+import select
+import pexpect
+import pexpect.exceptions
+
 try:
     import psutil
     has_psutil = True
@@ -30,7 +36,13 @@ except:
     has_neovim = False
 
 error_re = re.compile(r' (.*):(\d+):(\d+): (warning|error):')
+ansi_escape = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
 neovim_socket = None
+
+def new_queue():
+    return queue.Queue(maxsize=10000000)
+
+command_queue = new_queue()
 
 def open_file_and_go_to_line_column(file_name, line, col):
     if has_neovim and neovim_socket is not None:
@@ -124,6 +136,7 @@ class GRLockableEntry(tkinter.Frame):
 class Gui:
     def __init__(self, has_gui):
         self.root = tkinter.Tk()
+        self.log_length = 0
         self.root.geometry("1360x768")
         self.root.wm_title("GHCI Remote")
         self.has_gui = has_gui
@@ -145,12 +158,18 @@ class Gui:
     def set_ghci_process(self, ghci_process):
         self.ghci = ghci_process
 
-    def start(self):
+    def start_gui(self):
         self.root.mainloop()
 
     def add_log(self, content):
-        self.log_widget.append_content(content)
-        self.log_widget.see(tkinter.END)
+        self.log_length += len(content)
+        if (self.log_length > 10000):
+            self.log_widget.replace_content(content)
+            self.log_length = len(content)
+            self.log_widget.see(tkinter.END)
+        else:
+            self.log_widget.append_content(content)
+            self.log_widget.see(tkinter.END)
 
     def set_output(self, content):
         self.seconds_since_output = 0
@@ -269,238 +288,45 @@ p = None
 gui = None
 
 class GHCIProcess:
-    def __init__(self):
-        self.p = None
-        self.error_queue = queue.Queue(maxsize=10000)
-        self.output_queue = queue.Queue(maxsize=10000)
-        self.output_collector_thread = threading.Thread(target=self.output_collector, daemon=True)
-        self.error_collector_thread = threading.Thread(target=self.error_collector, daemon=True)
-        self.error_collector_thread.start();
-        self.output_collector_thread.start();
-        self.log_dispatch_queue = None
+    def __init__(self, command_queue):
+        self.thread = threading.Thread(target=self.thread_callback, daemon=True)
+        self.command_queue = command_queue
 
-    def restart(self):
-        quit_ghci()
-        start_ghci()
-
-    def set_log_queue(self, log_queue):
-        self.log_dispatch_queue = log_queue
-
-    def start(self):
-        if self.p is not None and self.p.poll() is None:
-            return self.p
-        else:
-            if len(sys.argv) == 2:
-                params = ["stack", "ghci", "--main-is", sys.argv[1], "--ghc-options", "-XNoNondecreasingIndentation", "--ghci-options", "+RTS -M2G -RTS"]
-            else:
-                params = ["stack", "ghci", "--ghc-options", "-XNoNondecreasingIndentation", "--ghci-options", "+RTS -M2G -RTS"]
-            self.p = subprocess.Popen(params, shell=False, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-            return None
-
-    def quit(self):
-        if self.p is not None and self.p.poll() is None:
-            self.p.stdin.write("{}\n".format(":q\n").encode())
-            self.p.stdin.flush()
-
-    def get_process_stats(self):
-        return get_ghci_process_stat(self.p)
-
-    def output_collector(self):
-        print("Starting output collector")
+    def thread_callback(self):
+        self.p = pexpect.spawn("stack", ["ghci"] + sys.argv[1:], encoding=sys.stdout.encoding)
+        self.p.logfile_read = sys.stdout
+        self.p.expect(['Loaded GHCi configuration'], timeout=1000)
+        self.p.expect(['>'], timeout=1000)
         while True:
-            if self.p is None:
-                time.sleep(1)
-            else:
-                rc = self.p.poll()
-                if rc is None:
-                    line = self.p.stdout.readline().decode()
-                    print(line)
-                    gui.add_log(line)
-                    try:
-                        if self.log_dispatch_queue is not None:
-                            self.log_dispatch_queue.put_nowait(line)
-                        self.output_queue.put_nowait(line)
-                    except:
-                        pass
-                else:
-                    print("Thread exited. Code : {}".format(rc))
-                    time.sleep(2)
+            command = self.format_command(self.command_queue.get())
+            self.p.sendline(command)
+            self.p.expect([OUTPUT_START_DELIMETER + "\"\r\n", pexpect.EOF, pexpect.TIMEOUT], timeout=1000)
+            self.p.expect(["\""+OUTPUT_END_DELIMETER, pexpect.EOF, pexpect.TIMEOUT], timeout=1000)
+            gui.set_errors(self.p.before)
+            gui.set_output(self.p.before)
+            self.p.expect([pexpect.EOF, pexpect.TIMEOUT], timeout=1)
 
-    def error_collector(self):
-        print("Starting error collector")
-        while True:
-            if self.p is None:
-                time.sleep(1)
-            else:
-                if self.p.poll() is None:
-                    line = self.p.stderr.readline()
-                    try:
-                        self.error_queue.put_nowait(line.decode())
-                    except:
-                        pass
-                else:
-                    time.sleep(2)
-
-    def dispatch(self, command):
-        command = ":cmd (return \" \\\"\\\"::String \\n \\\"{}\\\"::String\\n{}\\n\\\"{}\\\"::String\")\n".format(OUTPUT_START_DELIMETER, command.replace('"', '\\"'), OUTPUT_END_DELIMETER)
-        print(command)
-        if self.p.poll() is None:
-            self.p.stdin.write(command.encode())
-            self.p.stdin.flush()
-            output = self.read_output()
-            errors = self.read_errors()
-            return (output, errors)
-        else:
-            return ("No ghci process running", "No ghci process running")
-
-    def read_errors(self):
-        errors = []
-        while True:
-            try:
-                line = self.error_queue.get_nowait()
-                errors.append(line)
-            except queue.Empty:
-                return "".join(errors)
-    
-    def read_output(self):
-        output = []
-        started_flag = False
-        while True:
-            line = self.output_queue.get()
-            if line == "\"{}\"\n".format(OUTPUT_START_DELIMETER):
-                started_flag = True
-                continue
-            if started_flag:
-                if line == "\"{}\"\n".format(OUTPUT_END_DELIMETER):
-                    return "".join(output)
-                else:
-                    output.append(line)
-
-def make_error_blocks(content):
-    errors = []
-    warnings = []
-    if content is not None and len(content) > 0:
-        blocks = content.split("\n\n")
-        for b in blocks:
-            lines = b.strip().split("\n")
-            try:
-                (file_name, line, column, type_,_) = lines[0].split(":")
-                type_ = type_.strip()
-                if type_ == "error":
-                    errors.append(b)
-                elif type_ == "warning":
-                    warnings.append(b)
-            except:
-                continue
-    return {"errors" : errors, "warnings": warnings}
-
-def print_stats(blocks):
-    if blocks is None:
-        return "Not an error/warning output"
-    else:
-        return("errors: {}, warnings : {}".format(len(blocks["errors"]), len(blocks["warnings"])))
+    def format_command(self, command):
+        return ":cmd (return \" \\\"\\\"::String \\n \\\"{}\\\"::String\\n{}\\n\\\"{}\\\"::String\")\n".format(OUTPUT_START_DELIMETER, command.replace('"', '\\"'), OUTPUT_END_DELIMETER)
 
 class CommandServer:
-    def __init__(self, ghci_process, gui, command_port):
-        self.ghci_process = ghci_process
-        self.gui = gui
-        self.gui.set_ghci_process(ghci_process)
+    def __init__(self, command_port, command_queue):
         self.command_port = command_port
-        self.error_dispatch_queue = queue.Queue(maxsize=10000)
-        self.output_dispatch_queue = queue.Queue(maxsize=10000)
-        self.log_dispatch_queue = queue.Queue(maxsize=10000)
-        self.server_thread = threading.Thread(target=self.server, daemon=True)
-        self.ghci_process.set_log_queue(self.log_dispatch_queue)
-        self.start()
-        self.gui.start()
-        self.ghci_process.quit()
-
-    def start(self):
-        self.server_thread.start()
+        self.command_queue = command_queue
+        self.thread = threading.Thread(target=self.server, daemon=True)
 
     def server(self):
         print("Starting command server")
-        self.ghci_process.start()
         serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         serversocket.bind(('0.0.0.0', self.command_port))
         serversocket.listen(5)
-        self.output_server_thread = threading.Thread(target=queue_server, args=(self.output_dispatch_queue, OUTPUT_PORT), daemon=True)
-        self.error_server_thread = threading.Thread(target=queue_server, args=(self.error_dispatch_queue, ERROR_PORT), daemon=True)
-        self.log_server_thread = threading.Thread(target=queue_server, args=(self.log_dispatch_queue, LOG_PORT), daemon=True)
-        self.output_server_thread.start()
-        self.error_server_thread.start()
-        self.log_server_thread.start()
         while True:
-            print("Listening..")
             (clientsocket, address) = serversocket.accept()
             with clientsocket:
                 ghci_command = clientsocket.recv(REC_MAX_LENGTH).decode().strip()
-                self.gui.log_command(">{}\n".format(ghci_command))
-                if ghci_command[0:7] == 'socket=':
-                    global neovim_socket
-                    [_, neovim_socket] = ghci_command.split('=')
-                    continue
-                (output, errors) = self.ghci_process.dispatch(ghci_command)
-                if ghci_command[0:9] == ':complete':
-                    try:
-                        key_len = len(ghci_command.split(' ')[2].strip('"'))
-                        print("Len = {}".format(key_len))
-                        open_completion(key_len, [x.strip('"') for x in output.split("\n")[1:]])
-                    except:
-                       pass 
-                self.gui.set_output(output)
-                self.gui.set_errors(errors)
-                if gui.get_error_file() is not None:
-                    try:
-                        with open(gui.get_error_file(), "w") as text_file:
-                            if gui.is_errors_enabled() and gui.is_warnings_enabled():
-                                text_file.write(errors)
-                            elif gui.is_errors_enabled():
-                                blocks = make_error_blocks(errors)
-                                for (idx, b) in enumerate(blocks["errors"]):
-                                    text_file.write(b.strip())
-                                    text_file.write("\n\n")
-                            elif gui.is_warnings_enabled():
-                                blocks = make_error_blocks(errors)
-                                for (idx, b) in enumerate(blocks["warnings"]):
-                                    text_file.write(b.strip())
-                                    text_file.write("\n\n")
-                    except:
-                        tkinter.messagebox.showinfo("Error file write error", "There was an error writing errors to file {}".format(error_file))
-                try:
-                    self.error_dispatch_queue.put_nowait(errors)
-                except:
-                    print("Error queue full: Discarding error")
-                try:
-                    self.output_dispatch_queue.put_nowait(output)
-                except:
-                    print("Output queue full: Discarding output")
+                self.command_queue.put(ghci_command)
                 clientsocket.sendall("ok".encode())
-
-count = 0;
-
-def queue_server(queue, port):
-    serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    serversocket.bind(('0.0.0.0', port))
-    serversocket.listen(5)
-    while True:
-        print("Listening at {}".format(port))
-        (clientsocket, address) = serversocket.accept()
-        while True:
-            try:
-                output = queue.get(timeout=1)
-                break
-            except:
-                continue
-        try:
-            if len(output) == 0:
-                output = "No Output"
-            clientsocket.sendall(output.encode())
-            clientsocket.close()
-        except:
-            clientsocket.close()
 
 def format_memory_info(mi):
     return "{}".format(convert_size(mi.rss))
@@ -523,5 +349,33 @@ def convert_size(size_bytes):
   s = round(size_bytes / p, 2)
   return "%s %s" % (s, size_name[i])
 
+def make_error_blocks(content):
+    errors = []
+    warnings = []
+    if content is not None and len(content) > 0:
+        blocks = content.split("\r\n")
+        for b in blocks:
+            lines = b.strip().split("\r\n")
+            try:
+                (file_name, line, column, type_,_) = lines[0].split(":")
+                type_ = type_.strip()
+                if type_ == "error":
+                    errors.append(b)
+                elif type_ == "warning":
+                    warnings.append(b)
+            except:
+                continue
+    return {"errors" : errors, "warnings": warnings}
+
+def print_stats(blocks):
+    if blocks is None:
+        return "Not an error/warning output"
+    else:
+        return("errors: {}, warnings : {}".format(len(blocks["errors"]), len(blocks["warnings"])))
+
+command_server = CommandServer(COMMAND_PORT, command_queue)
+command_server.thread.start()
+ghci_process = GHCIProcess(command_queue)
+ghci_process.thread.start()
 gui = Gui(has_gui)
-command_server = CommandServer(GHCIProcess(), gui, COMMAND_PORT)
+gui.start_gui()
