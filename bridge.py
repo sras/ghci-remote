@@ -165,6 +165,10 @@ class Gui:
         self.log_widget.replace_content('')
         self.log_widget.see(tkinter.END)
 
+    def set_log(self, content):
+        self.log_widget.replace_content(content)
+        self.log_widget.see(tkinter.END)
+
     def add_log(self, content):
         self.log_length += len(content)
         if (self.log_length > 10000):
@@ -180,7 +184,7 @@ class Gui:
         self.output_widget.replace_content(content)
 
     def log_command(self, content):
-        self.command_widget.append_content(content)
+        self.command_widget.append_content(content + '\n')
         self.command_widget.see(tkinter.END)
 
     def get_error_file(self):
@@ -247,8 +251,6 @@ class Gui:
         return self.display_warnings_var.get()
 
     def update_errors(self):
-        print("ERRORS-----------")
-        print(self.errors)
         blocks = make_error_blocks(self.errors)
         stats = print_stats(blocks) + "\n\n"
         self.errors_widget.replace_content(stats)
@@ -301,8 +303,13 @@ class GHCIProcess:
     def thread_callback(self):
         self.p = pexpect.spawn("stack", ["ghci"] + sys.argv[1:], encoding=sys.stdout.encoding)
         self.p.logfile_read = sys.stdout
-        index = self.p.expect_exact(['Loaded GHCi configuration'], timeout=1000)
-        gui.add_log("Got loaded config")
+        while True:
+            index = self.p.expect_exact(['\r\n', 'Loaded GHCi configuration'], timeout=1000)
+            if index == 0:
+                gui.set_log(self.p.before)
+            else:
+                break
+        gui.set_log("Got loaded config")
         self.p.expect_exact(['>'], timeout=1000)
         while True: # command execution loop
             gui.clear_log()
@@ -312,10 +319,21 @@ class GHCIProcess:
             command = self.format_command(c)
             self.p.sendline(command)
             self.p.expect_exact([OUTPUT_START_DELIMETER + "\"\r\n", pexpect.EOF, pexpect.TIMEOUT], timeout=1000)
-            gui.clear_log()
             outlines = []
-            self.p.expect_exact(["\""+OUTPUT_END_DELIMETER, pexpect.EOF, pexpect.TIMEOUT], timeout=1000)
-            output = self.p.before.replace('\r\n', '\n')
+            while True:
+                index = self.p.expect_exact(['\r\n', "\""+OUTPUT_END_DELIMETER], timeout=1000)
+                if index == 0:
+                    out_line = self.p.before + '\n'
+                    outlines.append(out_line)
+                    gui.set_log(out_line)
+                    continue
+                else:
+                    out_line = self.p.before + '\n'
+                    outlines.append(out_line)
+                    gui.set_log(out_line)
+                    break
+            gui.add_log("Done...")
+            output = ''.join(outlines)
             gui.set_errors(output)
             gui.set_output(output)
             self.p.expect([pexpect.EOF, pexpect.TIMEOUT], timeout=1)
