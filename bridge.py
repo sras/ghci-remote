@@ -161,6 +161,10 @@ class Gui:
     def start_gui(self):
         self.root.mainloop()
 
+    def clear_log(self):
+        self.log_widget.replace_content('')
+        self.log_widget.see(tkinter.END)
+
     def add_log(self, content):
         self.log_length += len(content)
         if (self.log_length > 10000):
@@ -243,6 +247,8 @@ class Gui:
         return self.display_warnings_var.get()
 
     def update_errors(self):
+        print("ERRORS-----------")
+        print(self.errors)
         blocks = make_error_blocks(self.errors)
         stats = print_stats(blocks) + "\n\n"
         self.errors_widget.replace_content(stats)
@@ -300,19 +306,26 @@ class GHCIProcess:
             if index == 0:
                 gui.add_log(ansi_escape.sub('', self.p.before) + '\n')
                 continue
-            else:
+            elif index == 1:
+                gui.add_log("Got loaded config")
                 break
         self.p.expect(['>'], timeout=1000)
         while True: # command execution loop
-            command = self.format_command(self.command_queue.get())
+            gui.clear_log()
+            gui.add_log("Waiting for command...")
+            c = self.command_queue.get()
+            gui.log_command(c)
+            command = self.format_command(c)
             self.p.sendline(command)
             self.p.expect_exact([OUTPUT_START_DELIMETER + "\"\r\n", pexpect.EOF, pexpect.TIMEOUT], timeout=1000)
+            gui.clear_log()
             outlines = []
             while True: # log output of the command
                 index = self.p.expect_exact(["\r\n", "\""+OUTPUT_END_DELIMETER, pexpect.EOF, pexpect.TIMEOUT], timeout=1000)
                 if index == 0:
-                    outlines.append(self.p.before)
-                    gui.add_log(self.p.before)
+                    out_line = self.p.before
+                    outlines.append(out_line + "\n")
+                    gui.add_log(out_line)
                     continue
                 else:
                     break
