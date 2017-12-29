@@ -328,6 +328,30 @@ class CommandServer:
                 self.command_queue.put(ghci_command)
                 clientsocket.sendall("ok".encode())
 
+def make_error_blocks(content):
+    errors = []
+    warnings = []
+    if content is not None and len(content) > 0:
+        blocks = content.split("\r\n\r\n")
+        for b in blocks:
+            lines = b.strip().split("\r\n")
+            try:
+                (file_name, line, column, type_,_) = lines[0].split(":")
+                type_ = type_.strip()
+                if type_ == "error":
+                    errors.append('\n'.join(lines))
+                elif type_ == "warning":
+                    warnings.append('\n'.join(lines))
+            except:
+                continue
+    return {"errors" : errors, "warnings": warnings}
+
+def print_stats(blocks):
+    if blocks is None:
+        return "Not an error/warning output"
+    else:
+        return("errors: {}, warnings : {}".format(len(blocks["errors"]), len(blocks["warnings"])))
+
 def format_memory_info(mi):
     return "{}".format(convert_size(mi.rss))
 
@@ -348,30 +372,6 @@ def convert_size(size_bytes):
   p = math.pow(1024, i)
   s = round(size_bytes / p, 2)
   return "%s %s" % (s, size_name[i])
-
-def make_error_blocks(content):
-    errors = []
-    warnings = []
-    if content is not None and len(content) > 0:
-        blocks = content.split("\r\n")
-        for b in blocks:
-            lines = b.strip().split("\r\n")
-            try:
-                (file_name, line, column, type_,_) = lines[0].split(":")
-                type_ = type_.strip()
-                if type_ == "error":
-                    errors.append(b)
-                elif type_ == "warning":
-                    warnings.append(b)
-            except:
-                continue
-    return {"errors" : errors, "warnings": warnings}
-
-def print_stats(blocks):
-    if blocks is None:
-        return "Not an error/warning output"
-    else:
-        return("errors: {}, warnings : {}".format(len(blocks["errors"]), len(blocks["warnings"])))
 
 command_server = CommandServer(COMMAND_PORT, command_queue)
 command_server.thread.start()
