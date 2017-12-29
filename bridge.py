@@ -316,6 +316,7 @@ class GHCIProcess:
             gui.add_log("Waiting for command...")
             c = os.read(self.command_queue, 1000).decode().strip()
             gui.log_command(c)
+            gui.set_log("Executing...")
             command = self.format_command(c)
             self.p.sendline(command)
             self.p.expect_exact([OUTPUT_START_DELIMETER + "\"\r\n", pexpect.EOF, pexpect.TIMEOUT], timeout=1000)
@@ -332,7 +333,7 @@ class GHCIProcess:
                     outlines.append(out_line)
                     gui.set_log(out_line)
                     break
-            gui.add_log("Done...")
+            gui.set_log("Done!")
             output = ''.join(outlines)
             gui.set_errors(output)
             gui.set_output(output)
