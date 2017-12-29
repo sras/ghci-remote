@@ -42,7 +42,7 @@ neovim_socket = None
 def new_queue():
     return queue.Queue(maxsize=10000000)
 
-command_queue = new_queue()
+command_queue = os.pipe()
 
 def open_file_and_go_to_line_column(file_name, line, col):
     if has_neovim and neovim_socket is not None:
@@ -314,7 +314,7 @@ class GHCIProcess:
         while True: # command execution loop
             gui.clear_log()
             gui.add_log("Waiting for command...")
-            c = self.command_queue.get()
+            c = os.read(self.command_queue, 1000).decode().strip()
             gui.log_command(c)
             command = self.format_command(c)
             self.p.sendline(command)
@@ -356,8 +356,8 @@ class CommandServer:
         while True:
             (clientsocket, address) = serversocket.accept()
             with clientsocket:
-                ghci_command = clientsocket.recv(REC_MAX_LENGTH).decode().strip()
-                self.command_queue.put(ghci_command)
+                ghci_command = clientsocket.recv(REC_MAX_LENGTH)
+                os.write(self.command_queue, ghci_command)
                 clientsocket.sendall("ok".encode())
 
 def make_error_blocks(content):
@@ -405,9 +405,9 @@ def convert_size(size_bytes):
   s = round(size_bytes / p, 2)
   return "%s %s" % (s, size_name[i])
 
-command_server = CommandServer(COMMAND_PORT, command_queue)
+command_server = CommandServer(COMMAND_PORT, command_queue[1])
 command_server.thread.start()
-ghci_process = GHCIProcess(command_queue)
+ghci_process = GHCIProcess(command_queue[0])
 ghci_process.thread.start()
 gui = Gui(has_gui)
 gui.start_gui()
