@@ -135,6 +135,7 @@ class GRLockableEntry(tkinter.Frame):
 
 class Gui:
     def __init__(self, has_gui):
+        self.ghci_process_id = None
         self.root = tkinter.Tk()
         self.log_length = 0
         self.root.geometry("1360x768")
@@ -268,12 +269,11 @@ class Gui:
             self.errors_widget.config(bg="#222222", fg="yellow")
         else:
             self.errors_widget.config(bg="#222222", fg="white")
-            self.errors_widget.append_content(self.errors)
 
     def time_updater(self):
         while True:
-            if self.ghci is not None:
-                process_stat = self.ghci.get_process_stats()
+            if self.ghci_process_id is not None:
+                process_stat = get_ghci_process_stat(self.ghci_process_id)
             else:
                 process_stat = "Not available"
             self.time_widget.replace_content("Time since last output - {} Sec\nGhc processes: {}".format(self.seconds_since_output, process_stat))
@@ -300,22 +300,32 @@ class GHCIProcess:
         self.thread = threading.Thread(target=self.thread_callback, daemon=True)
         self.command_queue = command_queue
 
-    def thread_callback(self):
+    def do_startup(self):
         self.p = pexpect.spawn("stack", ["ghci"] + sys.argv[1:], encoding=sys.stdout.encoding)
         self.p.logfile_read = sys.stdout
+        outlines = []
         while True:
             index = self.p.expect_exact(['\r\n', 'Loaded GHCi configuration'], timeout=1000)
             if index == 0:
+                outlines.append(self.p.before + '\n')
                 gui.set_log(self.p.before)
             else:
                 break
         gui.set_log("Got loaded config")
         self.p.expect_exact(['>'], timeout=1000)
+        output = ansi_escape.sub('', ''.join(outlines))
+        gui.set_errors(output)
+        gui.set_output(output)
+
+    def thread_callback(self):
+        self.do_startup()
         while True: # command execution loop
             gui.clear_log()
             gui.add_log("Waiting for command...")
             c = os.read(self.command_queue, 1000).decode().strip()
             gui.log_command(c)
+            if execute_config_command(c):
+                continue
             gui.set_log("Executing...")
             command = self.format_command(c)
             self.p.sendline(command)
@@ -323,20 +333,18 @@ class GHCIProcess:
             outlines = []
             while True:
                 index = self.p.expect_exact(['\r\n', "\""+OUTPUT_END_DELIMETER], timeout=1000)
+                o = self.p.before + '\n'
+                gui.set_log(o)
+                outlines.append(o)
                 if index == 0:
-                    out_line = self.p.before + '\n'
-                    outlines.append(out_line)
-                    gui.set_log(out_line)
                     continue
                 else:
-                    out_line = self.p.before + '\n'
-                    outlines.append(out_line)
-                    gui.set_log(out_line)
                     break
             gui.set_log("Done!")
             output = ''.join(outlines)
             gui.set_errors(output)
             gui.set_output(output)
+            write_error_file(output)
             self.p.expect([pexpect.EOF, pexpect.TIMEOUT], timeout=1)
 
     def format_command(self, command):
@@ -358,8 +366,8 @@ class CommandServer:
             (clientsocket, address) = serversocket.accept()
             with clientsocket:
                 ghci_command = clientsocket.recv(REC_MAX_LENGTH)
-                os.write(self.command_queue, ghci_command)
                 clientsocket.sendall("ok".encode())
+                os.write(self.command_queue, ghci_command)
 
 def make_error_blocks(content):
     errors = []
@@ -388,10 +396,10 @@ def print_stats(blocks):
 def format_memory_info(mi):
     return "{}".format(convert_size(mi.rss))
 
-def get_ghci_process_stat(p):
+def get_ghci_process_stat(pid):
     if has_psutil:
         try:
-            return " | ".join(["pid={}{}, Mem = {}({}%)".format(x.pid, "*" if x.ppid() == p.pid else "", format_memory_info(x.memory_info()), round(x.memory_percent(), 2)) for x in psutil.process_iter() if x.name() =="ghc"])
+            return " | ".join(["pid={}{}, Mem = {}({}%)".format(x.pid, "*" if x.ppid() == pid else "", format_memory_info(x.memory_info()), round(x.memory_percent(), 2)) for x in psutil.process_iter() if x.name() =="ghc"])
         except:
             return "Not available"
     else:
@@ -406,9 +414,33 @@ def convert_size(size_bytes):
   s = round(size_bytes / p, 2)
   return "%s %s" % (s, size_name[i])
 
+def write_error_file(errors):
+    if gui.get_error_file() is not None:
+        try:
+            with open(gui.get_error_file(), "w") as text_file:
+                blocks = make_error_blocks(errors)
+                if gui.is_errors_enabled():
+                    for (idx, b) in enumerate(blocks["errors"]):
+                        text_file.write(b.strip())
+                        text_file.write("\n\n")
+                if gui.is_warnings_enabled():
+                    for (idx, b) in enumerate(blocks["warnings"]):
+                        text_file.write(b.strip())
+                        text_file.write("\n\n")
+        except:
+            tkinter.messagebox.showinfo("Error file write error", "There was an error writing errors to file {}".format(error_file))
+
+def execute_config_command(ghci_command):
+   if ghci_command[0:7] == 'socket=':
+       global neovim_socket
+       [_, neovim_socket] = ghci_command.split('=')
+       return True
+   return False
+
 command_server = CommandServer(COMMAND_PORT, command_queue[1])
 command_server.thread.start()
 ghci_process = GHCIProcess(command_queue[0])
 ghci_process.thread.start()
 gui = Gui(has_gui)
+gui.ghci_process_id = ghci_process.p.pid
 gui.start_gui()
