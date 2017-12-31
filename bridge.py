@@ -135,7 +135,6 @@ class GRLockableEntry(tkinter.Frame):
 
 class Gui:
     def __init__(self, has_gui):
-        self.ghci_process_id = None
         self.root = tkinter.Tk()
         self.log_length = 0
         self.root.geometry("1360x768")
@@ -150,14 +149,22 @@ class Gui:
         self.display_warnings_var = tkinter.IntVar()
         self.errors = None
         self.ghci = None
+        self.ghci_write_command_queue = None
+        self.ghci_read_command_queue = None
         self.initialize()
+
+    def start_ghci(self, read_command_queue, write_command_queue):
+        if self.ghci and self.ghci.is_running():
+            self.log_command("A GHCI instance in still running")
+        else:
+            self.ghci_write_command_queue = write_command_queue
+            self.ghci_read_command_queue = read_command_queue
+            self.ghci = GHCIProcess(read_command_queue)
+            self.ghci.thread.start()
 
     def set_errors(self, errors):
         self.errors = errors
         self.update_errors()
-
-    def set_ghci_process(self, ghci_process):
-        self.ghci = ghci_process
 
     def start_gui(self):
         self.root.mainloop()
@@ -196,15 +203,12 @@ class Gui:
             return None
 
     def ghci_start(self):
-        self.ghci.start()
+        if self.ghci_read_command_queue:
+            self.start_ghci(self.ghci_read_command_queue, self.ghci_write_command_queue)
     
     def ghci_quit(self):
-        self.ghci.quit()
-    
-    def ghci_restart(self):
-        self.ghci.quit_ghci()
-        self.ghci.start()
-    
+        os.write(self.ghci_write_command_queue, "stop_ghci".encode())
+
     def initialize(self):
         if self.has_gui:
             top_pane = GRWindow(self.root)
@@ -228,7 +232,6 @@ class Gui:
             button_pane = tkinter.Frame(bottom_pane, height=30, bd=0, bg="#222222")
             right_pane.add(bottom_pane, height=60)
             error_file_widget_wrapper = GRLockableEntry(bottom_pane, bg="#222222", textvariable=self.error_file_var)
-            restart_button = tkinter.Button(button_pane, text="Restart", command=self.ghci_restart, bg="#222222", fg="white", highlightthickness=0)
             start_button = tkinter.Button(button_pane, text="Start", command=self.ghci_start, bg="#222222", fg="white", highlightthickness=0)
             end_button = tkinter.Button(button_pane, text="Stop", command=self.ghci_quit, bg="#222222", fg="white", highlightthickness=0)
             self.display_errors_checkbox = tkinter.Checkbutton(button_pane, command=self.update_errors, text = "Errors", variable = self.display_errors_var, onvalue = 1, offvalue = 0, height=30,  fg="white", selectcolor="black", padx=0, highlightthickness=0, bd=0, bg="#222222")
@@ -237,7 +240,6 @@ class Gui:
             self.display_warnings_checkbox.select()
             error_file_widget_wrapper.pack(side=tkinter.TOP, pady=5, fill=tkinter.X, expand=1)
             button_pane.pack(side=tkinter.TOP, fill=tkinter.BOTH, expand=1, pady=5)
-            restart_button.pack(side=tkinter.LEFT, padx=5)
             start_button.pack(side=tkinter.LEFT, padx=5)
             end_button.pack(side=tkinter.LEFT, padx=5)
             self.display_errors_checkbox.pack(side=tkinter.LEFT, padx=5)
@@ -272,10 +274,11 @@ class Gui:
 
     def time_updater(self):
         while True:
-            if self.ghci_process_id is not None:
-                process_stat = get_ghci_process_stat(self.ghci_process_id)
-            else:
-                process_stat = "Not available"
+            process_stat = "Not available"
+            if self.ghci:
+                gpid = self.ghci.get_process_id()
+                if gpid is not None:
+                    process_stat = get_ghci_process_stat(gpid)
             self.time_widget.replace_content("Time since last output - {} Sec\nGhc processes: {}".format(self.seconds_since_output, process_stat))
             self.seconds_since_output = self.seconds_since_output + 1
             time.sleep(1)
@@ -299,6 +302,20 @@ class GHCIProcess:
     def __init__(self, command_queue):
         self.thread = threading.Thread(target=self.thread_callback, daemon=True)
         self.command_queue = command_queue
+        self.thread_exit = False
+        self.p = None
+
+    def get_process_id(self):
+        if self.p:
+            return self.p.pid
+        else:
+            return None
+
+    def is_running(self):
+        if self.p:
+            return self.p.isalive()
+        else:
+            return False
 
     def do_startup(self):
         self.p = pexpect.spawn("stack", ["ghci"] + sys.argv[1:], encoding=sys.stdout.encoding)
@@ -320,11 +337,13 @@ class GHCIProcess:
     def thread_callback(self):
         self.do_startup()
         while True: # command execution loop
+            if self.thread_exit:
+                return
             gui.clear_log()
             gui.add_log("Waiting for command...")
             c = os.read(self.command_queue, 1000).decode().strip()
             gui.log_command(c)
-            if execute_config_command(c):
+            if self.execute_config_command(c):
                 continue
             gui.set_log("Executing...")
             command = self.format_command(c)
@@ -346,6 +365,17 @@ class GHCIProcess:
             gui.set_output(output)
             write_error_file(output)
             self.p.expect([pexpect.EOF, pexpect.TIMEOUT], timeout=1)
+
+    def execute_config_command(self, ghci_command):
+       if ghci_command[0:7] == 'socket=':
+           global neovim_socket
+           [_, neovim_socket] = ghci_command.split('=')
+           return True
+       if ghci_command == 'stop_ghci':
+           self.p.terminate(force=True)
+           self.thread_exit = True
+           return True
+       return False
 
     def format_command(self, command):
         return ":cmd (return \" \\\"\\\"::String \\n \\\"{}\\\"::String\\n{}\\n\\\"{}\\\"::String\")\n".format(OUTPUT_START_DELIMETER, command.replace('"', '\\"'), OUTPUT_END_DELIMETER)
@@ -430,17 +460,8 @@ def write_error_file(errors):
         except:
             tkinter.messagebox.showinfo("Error file write error", "There was an error writing errors to file {}".format(error_file))
 
-def execute_config_command(ghci_command):
-   if ghci_command[0:7] == 'socket=':
-       global neovim_socket
-       [_, neovim_socket] = ghci_command.split('=')
-       return True
-   return False
-
 command_server = CommandServer(COMMAND_PORT, command_queue[1])
 command_server.thread.start()
-ghci_process = GHCIProcess(command_queue[0])
-ghci_process.thread.start()
 gui = Gui(has_gui)
-gui.ghci_process_id = ghci_process.p.pid
+gui.start_ghci(command_queue[0], command_queue[1])
 gui.start_gui()
