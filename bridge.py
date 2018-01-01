@@ -42,7 +42,6 @@ neovim_socket = None
 def new_queue():
     return queue.Queue(maxsize=10000000)
 
-command_queue = os.pipe()
 
 def open_file_and_go_to_line_column(file_name, line, col):
     if has_neovim and neovim_socket is not None:
@@ -51,6 +50,17 @@ def open_file_and_go_to_line_column(file_name, line, col):
             nvim.command('e +{} {}'.format(r'call\ cursor({},{})|execute\ "normal"\ "V"'.format(line, col), file_name))
         except:
             pass
+
+def neovim_indicate_error(blocks):
+    if blocks is not None:
+        if has_neovim and neovim_socket is not None:
+            nvim = attach('socket', path=neovim_socket)
+            if len(blocks["errors"]) > 0:
+                nvim.command("hi StatusLine ctermbg=darkred")
+            elif len(blocks["warnings"]) > 0:
+                nvim.command("hi StatusLine ctermbg=yellow")
+            else:
+                nvim.command("hi StatusLine ctermbg=green")
 
 def open_completion(offset, completions):
     if has_neovim and neovim_socket is not None:
@@ -149,18 +159,7 @@ class Gui:
         self.display_warnings_var = tkinter.IntVar()
         self.errors = None
         self.ghci = None
-        self.ghci_write_command_queue = None
-        self.ghci_read_command_queue = None
         self.initialize()
-
-    def start_ghci(self, read_command_queue, write_command_queue):
-        if self.ghci and self.ghci.is_running():
-            self.log_command("A GHCI instance in still running")
-        else:
-            self.ghci_write_command_queue = write_command_queue
-            self.ghci_read_command_queue = read_command_queue
-            self.ghci = GHCIProcess(read_command_queue)
-            self.ghci.thread.start()
 
     def set_errors(self, errors):
         self.errors = errors
@@ -168,6 +167,10 @@ class Gui:
 
     def start_gui(self):
         self.root.mainloop()
+
+    def set_ghci(self, ghci):
+        self.ghci = ghci
+        ghci.set_gui(self)
 
     def clear_log(self):
         self.log_widget.replace_content('')
@@ -203,11 +206,13 @@ class Gui:
             return None
 
     def ghci_start(self):
-        if self.ghci_read_command_queue:
-            self.start_ghci(self.ghci_read_command_queue, self.ghci_write_command_queue)
-    
+        if self.ghci.is_running():
+            self.log_command("A GHCI instance in still running")
+        else:
+            self.ghci.start()
+
     def ghci_quit(self):
-        os.write(self.ghci_write_command_queue, "stop_ghci".encode())
+        self.ghci.send_command("stop_ghci")
 
     def initialize(self):
         if self.has_gui:
@@ -256,6 +261,7 @@ class Gui:
     def update_errors(self):
         blocks = make_error_blocks(self.errors)
         stats = print_stats(blocks) + "\n\n"
+        neovim_indicate_error(blocks)
         self.errors_widget.replace_content(stats)
         if self.display_errors_var.get() == 1:
             for (idx, b) in enumerate(blocks["errors"]):
@@ -276,9 +282,9 @@ class Gui:
         while True:
             process_stat = "Not available"
             if self.ghci:
-                gpid = self.ghci.get_process_id()
-                if gpid is not None:
-                    process_stat = get_ghci_process_stat(gpid)
+                s = self.ghci.get_stat()
+                if s:
+                    process_stat = s
             self.time_widget.replace_content("Time since last output - {} Sec\nGhc processes: {}".format(self.seconds_since_output, process_stat))
             self.seconds_since_output = self.seconds_since_output + 1
             time.sleep(1)
@@ -299,17 +305,27 @@ p = None
 gui = None
 
 class GHCIProcess:
-    def __init__(self, command_queue):
-        self.thread = threading.Thread(target=self.thread_callback, daemon=True)
-        self.command_queue = command_queue
+    def __init__(self, read_pipe, write_pipe):
+        self.read_pipe, self.write_pipe = read_pipe, write_pipe
         self.thread_exit = False
         self.p = None
+        self.gui = None
 
-    def get_process_id(self):
+    def get_stat(self):
         if self.p:
-            return self.p.pid
+            return get_ghci_process_stat(self.p.pid)
         else:
             return None
+
+    def set_gui(self, gui):
+        self.gui = gui
+
+    def send_command(self, command):
+        os.write(self.write_pipe, "stop_ghci".encode())
+
+    def start(self):
+        self.thread = threading.Thread(target=self.thread_callback, daemon=True)
+        self.thread.start()
 
     def is_running(self):
         if self.p:
@@ -328,24 +344,24 @@ class GHCIProcess:
                 gui.set_log(self.p.before)
             else:
                 break
-        gui.set_log("Got loaded config")
+        self.gui.set_log("Got loaded config")
         self.p.expect_exact(['>'], timeout=1000)
         output = ansi_escape.sub('', ''.join(outlines))
-        gui.set_errors(output)
-        gui.set_output(output)
+        self.gui.set_errors(output)
+        self.gui.set_output(output)
 
     def thread_callback(self):
         self.do_startup()
         while True: # command execution loop
             if self.thread_exit:
                 return
-            gui.clear_log()
-            gui.add_log("Waiting for command...")
-            c = os.read(self.command_queue, 1000).decode().strip()
-            gui.log_command(c)
+            self.gui.clear_log()
+            self.gui.add_log("Waiting for command...")
+            c = os.read(self.read_pipe, 1000).decode().strip()
+            self.gui.log_command(c)
             if self.execute_config_command(c):
                 continue
-            gui.set_log("Executing...")
+            self.gui.set_log("Executing...")
             command = self.format_command(c)
             self.p.sendline(command)
             self.p.expect_exact([OUTPUT_START_DELIMETER + "\"\r\n", pexpect.EOF, pexpect.TIMEOUT], timeout=1000)
@@ -353,18 +369,34 @@ class GHCIProcess:
             while True:
                 index = self.p.expect_exact(['\r\n', "\""+OUTPUT_END_DELIMETER], timeout=1000)
                 o = self.p.before + '\n'
-                gui.set_log(o)
+                self.gui.set_log(o)
                 outlines.append(o)
                 if index == 0:
                     continue
                 else:
                     break
-            gui.set_log("Done!")
+            self.gui.set_log("Done!")
             output = ''.join(outlines)
-            gui.set_errors(output)
-            gui.set_output(output)
-            write_error_file(output)
+            self.gui.set_errors(output)
+            self.gui.set_output(output)
+            self.write_error_file(output)
             self.p.expect([pexpect.EOF, pexpect.TIMEOUT], timeout=1)
+
+    def write_error_file(self, errors):
+        if self.gui.get_error_file() is not None:
+            try:
+                with open(self.gui.get_error_file(), "w") as text_file:
+                    blocks = make_error_blocks(errors)
+                    if self.gui.is_errors_enabled():
+                        for (idx, b) in enumerate(blocks["errors"]):
+                            text_file.write(b.strip())
+                            text_file.write("\n\n")
+                    if self.gui.is_warnings_enabled():
+                        for (idx, b) in enumerate(blocks["warnings"]):
+                            text_file.write(b.strip())
+                            text_file.write("\n\n")
+            except:
+                tkinter.messagebox.showinfo("Error file write error", "There was an error writing errors to file {}".format(error_file))
 
     def execute_config_command(self, ghci_command):
        if ghci_command[0:7] == 'socket=':
@@ -444,24 +476,10 @@ def convert_size(size_bytes):
   s = round(size_bytes / p, 2)
   return "%s %s" % (s, size_name[i])
 
-def write_error_file(errors):
-    if gui.get_error_file() is not None:
-        try:
-            with open(gui.get_error_file(), "w") as text_file:
-                blocks = make_error_blocks(errors)
-                if gui.is_errors_enabled():
-                    for (idx, b) in enumerate(blocks["errors"]):
-                        text_file.write(b.strip())
-                        text_file.write("\n\n")
-                if gui.is_warnings_enabled():
-                    for (idx, b) in enumerate(blocks["warnings"]):
-                        text_file.write(b.strip())
-                        text_file.write("\n\n")
-        except:
-            tkinter.messagebox.showinfo("Error file write error", "There was an error writing errors to file {}".format(error_file))
-
-command_server = CommandServer(COMMAND_PORT, command_queue[1])
+command_read_pipe, command_write_pipe = os.pipe()
+command_server = CommandServer(COMMAND_PORT, command_write_pipe)
 command_server.thread.start()
 gui = Gui(has_gui)
-gui.start_ghci(command_queue[0], command_queue[1])
+gui.set_ghci(GHCIProcess(command_read_pipe, command_write_pipe))
+gui.ghci_start()
 gui.start_gui()
