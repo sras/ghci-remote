@@ -352,7 +352,8 @@ class GHCIProcess:
             self.p.expect_exact(['Loaded GHCi configuration'], timeout=1000)
             output = self.p.before.replace('\r\n', '\n') + '\n'
         self.gui.set_log("Got loaded config")
-        self.p.expect_exact(['>'], timeout=1000)
+        self.p.expect_exact(['>', pexpect.EOF], timeout=1000)
+        self.gui.set_log("Got prompt > ")
         self.gui.set_errors(output)
         self.gui.set_output(output)
 
@@ -360,6 +361,7 @@ class GHCIProcess:
         self.do_startup()
         while True: # command execution loop
             if self.thread_exit:
+                self.thread_exit = False
                 return
             self.gui.clear_log()
             self.gui.add_log("Waiting for command...")
