@@ -39,6 +39,8 @@ error_re = re.compile(r' (.*):(\d+):(\d+): (warning|error):')
 ansi_escape = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
 neovim_socket = None
 
+tight_follow = False
+
 def new_queue():
     return queue.Queue(maxsize=10000000)
 
@@ -337,16 +339,20 @@ class GHCIProcess:
         self.p = pexpect.spawn("stack", ["ghci"] + sys.argv[1:], encoding=sys.stdout.encoding)
         self.p.logfile_read = sys.stdout
         outlines = []
-        while True:
-            index = self.p.expect_exact(['\r\n', 'Loaded GHCi configuration'], timeout=1000)
-            if index == 0:
-                outlines.append(self.p.before + '\n')
-                gui.set_log(self.p.before)
-            else:
-                break
+        if tight_follow:
+            while True:
+                index = self.p.expect_exact(['\r\n', 'Loaded GHCi configuration'], timeout=1000)
+                if index == 0:
+                    outlines.append(self.p.before + '\n')
+                    gui.set_log(self.p.before)
+                else:
+                    break
+            output = ansi_escape.sub('', ''.join(outlines))
+        else:
+            self.p.expect_exact(['Loaded GHCi configuration'], timeout=1000)
+            output = self.p.before.replace('\r\n', '\n') + '\n'
         self.gui.set_log("Got loaded config")
         self.p.expect_exact(['>'], timeout=1000)
-        output = ansi_escape.sub('', ''.join(outlines))
         self.gui.set_errors(output)
         self.gui.set_output(output)
 
@@ -366,17 +372,21 @@ class GHCIProcess:
             self.p.sendline(command)
             self.p.expect_exact([OUTPUT_START_DELIMETER + "\"\r\n", pexpect.EOF, pexpect.TIMEOUT], timeout=1000)
             outlines = []
-            while True:
-                index = self.p.expect_exact(['\r\n', "\""+OUTPUT_END_DELIMETER], timeout=1000)
-                o = self.p.before + '\n'
-                self.gui.set_log(o)
-                outlines.append(o)
-                if index == 0:
-                    continue
-                else:
-                    break
-            self.gui.set_log("Done!")
-            output = ''.join(outlines)
+            if tight_follow:
+                while True:
+                    index = self.p.expect_exact(['\r\n', "\""+OUTPUT_END_DELIMETER], timeout=1000)
+                    o = self.p.before + '\n'
+                    self.gui.set_log(o)
+                    outlines.append(o)
+                    if index == 0:
+                        continue
+                    else:
+                        break
+                self.gui.set_log("Done!")
+                output = ''.join(outlines)
+            else:
+                self.p.expect_exact(["\""+OUTPUT_END_DELIMETER], timeout=1000)
+                output = self.p.before.replace('\r\n', '\n')
             self.gui.set_errors(output)
             self.gui.set_output(output)
             self.write_error_file(output)
