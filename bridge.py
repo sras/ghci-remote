@@ -395,9 +395,10 @@ class GHCIProcess:
             self.p.expect([pexpect.EOF, pexpect.TIMEOUT], timeout=1)
 
     def write_error_file(self, errors):
-        if self.gui.get_error_file() is not None:
+        error_file = self.gui.get_error_file()
+        if error_file is not None:
             try:
-                with open(self.gui.get_error_file(), "w") as text_file:
+                with open(error_file, "w") as text_file:
                     blocks = make_error_blocks(errors)
                     if self.gui.is_errors_enabled():
                         for (idx, b) in enumerate(blocks["errors"]):
