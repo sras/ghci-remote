@@ -44,25 +44,33 @@ tight_follow = False
 def new_queue():
     return queue.Queue(maxsize=10000000)
 
-
 def open_file_and_go_to_line_column(file_name, line, col):
     if has_neovim and neovim_socket is not None:
-        nvim = attach('socket', path=neovim_socket)
         try:
-            nvim.command('e +{} {}'.format(r'call\ cursor({},{})|execute\ "normal"\ "V"'.format(line, col), file_name))
+            nvim = attach('socket', path=neovim_socket)
+            try:
+                nvim.command('e +{} {}'.format(r'call\ cursor({},{})|execute\ "normal"\ "V"'.format(line, col), file_name))
+            except:
+                print("Error executing command at neovim")
         except:
-            pass
+            print("Error connecting to neovim")
 
 def neovim_indicate_error(blocks):
     if blocks is not None:
         if has_neovim and neovim_socket is not None:
-            nvim = attach('socket', path=neovim_socket)
-            if len(blocks["errors"]) > 0:
-                nvim.command("hi StatusLine ctermbg=darkred")
-            elif len(blocks["warnings"]) > 0:
-                nvim.command("hi StatusLine ctermbg=yellow")
-            else:
-                nvim.command("hi StatusLine ctermbg=green")
+            try:
+                nvim = attach('socket', path=neovim_socket)
+                try:
+                    if len(blocks["errors"]) > 0:
+                        nvim.command("hi StatusLine ctermbg=darkred")
+                    elif len(blocks["warnings"]) > 0:
+                        nvim.command("hi StatusLine ctermbg=yellow")
+                    else:
+                        nvim.command("hi StatusLine ctermbg=green")
+                except:
+                    print("Error executing command at neovim")
+            except:
+                print("Error connecting to neovim")
 
 def open_completion(offset, completions):
     if has_neovim and neovim_socket is not None:
