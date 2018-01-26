@@ -22,9 +22,10 @@ probaby can just do something like to install it.
 sudo apt-get install python3-tk
 ```
 
+Then you have to install the pexpect [python](https://pexpect.readthedocs.io/en/stable/) library.
+
 There are two optional dependencies. https://pypi.python.org/pypi/psutil and the neovim module. If you have psutils, the 
-script will show the memory usage of all running ghc instances. If you install neovim module, you will be able to click on the error
-messages displayed in the gui, and have the file opened and cursor placed on the error in a running neovim instance. 
+script will show the memory usage of all running ghc instances. If you install neovim module, you will be able to click on the error messages displayed in the gui, and have the file opened and cursor placed on the error in a running neovim instance. 
 
 # How to use?
 
