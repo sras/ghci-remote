@@ -269,7 +269,8 @@ class Gui:
         return self.display_warnings_var.get()
 
     def update_errors(self):
-        blocks = make_error_blocks(self.errors)
+        errors = ansi_escape.sub('', self.errors)
+        blocks = make_error_blocks(errors)
         stats = print_stats(blocks) + "\n\n"
         neovim_indicate_error(blocks)
         self.errors_widget.replace_content(stats)
@@ -462,9 +463,9 @@ def make_error_blocks(content):
             try:
                 (file_name, line, column, type_,_) = lines[0].split(":")
                 type_ = type_.strip()
-                if type_ == "error":
+                if "error" in type_:
                     errors.append(b)
-                elif type_ == "warning":
+                elif "warning" in type_:
                     warnings.append(b)
             except:
                 continue
