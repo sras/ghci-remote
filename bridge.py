@@ -39,8 +39,6 @@ error_re = re.compile(r' (.*):(\d+):(\d+): (warning|error):')
 ansi_escape = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
 neovim_socket = None
 
-tight_follow = False
-
 def new_queue():
     return queue.Queue(maxsize=10000000)
 
@@ -269,11 +267,12 @@ class Gui:
         return self.display_warnings_var.get()
 
     def update_errors(self):
-        errors = ansi_escape.sub('', self.errors)
+        errors = self.errors;
         blocks = make_error_blocks(errors)
         stats = print_stats(blocks) + "\n\n"
         neovim_indicate_error(blocks)
         self.errors_widget.replace_content(stats)
+        self.ghci.has_errors = len(blocks["errors"]) > 0
         if self.display_errors_var.get() == 1:
             for (idx, b) in enumerate(blocks["errors"]):
                 self.errors_widget.append_error("{}. {}".format(idx + 1, b.strip()))
@@ -309,8 +308,7 @@ OUTPUT_PORT = 1881
 ERROR_PORT = 1882
 LOG_PORT = 1883
 REC_MAX_LENGTH = 4096
-OUTPUT_START_DELIMETER = "{#--------------------------------- START --------------------------#}"
-OUTPUT_END_DELIMETER = "{#--------------------------------- DONE --------------------------#}"
+PROMPT = "GHCIBRIDGEPROMPT>>>"
 
 p = None
 gui = None
@@ -321,6 +319,7 @@ class GHCIProcess:
         self.thread_exit = False
         self.p = None
         self.gui = None
+        self.has_errors = False
 
     def get_stat(self):
         if self.p:
@@ -348,20 +347,9 @@ class GHCIProcess:
         self.p = pexpect.spawn("stack", ["ghci"] + sys.argv[1:], encoding=sys.stdout.encoding)
         self.p.logfile_read = sys.stdout
         outlines = []
-        if tight_follow:
-            while True:
-                index = self.p.expect_exact(['\r\n', 'Loaded GHCi configuration'], timeout=1000)
-                if index == 0:
-                    outlines.append(self.p.before + '\n')
-                    gui.set_log(self.p.before)
-                else:
-                    break
-            output = ansi_escape.sub('', ''.join(outlines))
-        else:
-            self.p.expect_exact(['Loaded GHCi configuration'], timeout=1000)
-            output = self.p.before.replace('\r\n', '\n') + '\n'
-        self.gui.set_log("Got loaded config")
-        self.p.expect_exact(['>', pexpect.EOF], timeout=1000)
+        self.p.expect_exact([PROMPT], timeout=1000)
+        output = self.p.before.replace('\r\n', '\n') + '\n'
+        output = ansi_escape.sub('', output)
         self.gui.set_log("Got prompt > ")
         self.gui.set_errors(output)
         self.gui.set_output(output)
@@ -374,34 +362,24 @@ class GHCIProcess:
                 return
             self.gui.clear_log()
             self.gui.add_log("Waiting for command...")
-            c = os.read(self.read_pipe, 1000).decode().strip()
-            self.gui.log_command(c)
-            if self.execute_config_command(c):
-                continue
-            self.gui.set_log("Executing...")
-            command = self.format_command(c)
-            self.p.sendline(command)
-            self.p.expect_exact([OUTPUT_START_DELIMETER + "\"\r\n", pexpect.EOF, pexpect.TIMEOUT], timeout=1000)
-            outlines = []
-            if tight_follow:
-                while True:
-                    index = self.p.expect_exact(['\r\n', "\""+OUTPUT_END_DELIMETER], timeout=1000)
-                    o = self.p.before + '\n'
-                    self.gui.set_log(o)
-                    outlines.append(o)
-                    if index == 0:
-                        continue
-                    else:
-                        break
-                self.gui.set_log("Done!")
-                output = ''.join(outlines)
-            else:
-                self.p.expect_exact(["\""+OUTPUT_END_DELIMETER], timeout=1000)
+            ch = os.read(self.read_pipe, 1000).decode().strip()
+            for c in ch.split('|'):
+                self.gui.log_command(c)
+                print("Command = {};".format(c))
+                if self.execute_config_command(c):
+                    continue
+                self.gui.set_log("Executing `{}`...".format(c))
+                command = self.format_command(c)
+                self.p.sendline(command)
+                outlines = []
+                self.p.expect_exact([PROMPT], timeout=1000)
                 output = self.p.before.replace('\r\n', '\n')
-            self.gui.set_errors(output)
-            self.gui.set_output(output)
-            self.write_error_file(output)
-            self.p.expect([pexpect.EOF, pexpect.TIMEOUT], timeout=1)
+                output = ansi_escape.sub('', output)
+                self.gui.set_errors(output)
+                self.gui.set_output(output)
+                self.write_error_file(output)
+                if self.has_errors:
+                    break
 
     def write_error_file(self, errors):
         error_file = self.gui.get_error_file()
@@ -432,7 +410,7 @@ class GHCIProcess:
        return False
 
     def format_command(self, command):
-        return ":cmd (return \" \\\"\\\"::String \\n \\\"{}\\\"::String\\n{}\\n\\\"{}\\\"::String\")\n".format(OUTPUT_START_DELIMETER, command.replace('"', '\\"'), OUTPUT_END_DELIMETER)
+        return "{}".format(command.replace('"', '\\"'))
 
 class CommandServer:
     def __init__(self, command_port, command_queue):
