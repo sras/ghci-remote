@@ -267,12 +267,10 @@ class Gui:
         return self.display_warnings_var.get()
 
     def update_errors(self):
-        errors = self.errors;
-        blocks = make_error_blocks(errors)
+        blocks = self.errors;
         stats = print_stats(blocks) + "\n\n"
         neovim_indicate_error(blocks)
         self.errors_widget.replace_content(stats)
-        self.ghci.has_errors = len(blocks["errors"]) > 0
         if self.display_errors_var.get() == 1:
             for (idx, b) in enumerate(blocks["errors"]):
                 self.errors_widget.append_error("{}. {}".format(idx + 1, b.strip()))
@@ -319,7 +317,7 @@ class GHCIProcess:
         self.thread_exit = False
         self.p = None
         self.gui = None
-        self.has_errors = False
+        self.error_blocks = None
 
     def get_stat(self):
         if self.p:
@@ -351,7 +349,8 @@ class GHCIProcess:
         output = self.p.before.replace('\r\n', '\n') + '\n'
         output = ansi_escape.sub('', output)
         self.gui.set_log("Got prompt > ")
-        self.gui.set_errors(output)
+        self.error_blocks = make_error_blocks(output)
+        self.gui.set_errors(self.error_blocks)
         self.gui.set_output(output)
 
     def thread_callback(self):
@@ -365,7 +364,6 @@ class GHCIProcess:
             ch = os.read(self.read_pipe, 1000).decode().strip()
             for c in ch.split('|'):
                 self.gui.log_command(c)
-                print("Command = {};".format(c))
                 if self.execute_config_command(c):
                     continue
                 self.gui.set_log("Executing `{}`...".format(c))
@@ -375,18 +373,18 @@ class GHCIProcess:
                 self.p.expect_exact([PROMPT], timeout=1000)
                 output = self.p.before.replace('\r\n', '\n')
                 output = ansi_escape.sub('', output)
-                self.gui.set_errors(output)
+                self.error_blocks = make_error_blocks(output)
+                self.gui.set_errors(self.error_blocks)
                 self.gui.set_output(output)
-                self.write_error_file(output)
-                if self.has_errors:
+                self.write_error_file(self.error_blocks)
+                if len(self.error_blocks["errors"]) > 0:
                     break
 
-    def write_error_file(self, errors):
+    def write_error_file(self, blocks):
         error_file = self.gui.get_error_file()
         if error_file is not None:
             try:
                 with open(error_file, "w") as text_file:
-                    blocks = make_error_blocks(errors)
                     if self.gui.is_errors_enabled():
                         for (idx, b) in enumerate(blocks["errors"]):
                             text_file.write(b.strip())
