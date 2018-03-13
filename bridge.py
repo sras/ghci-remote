@@ -317,7 +317,7 @@ class GHCIProcess:
         self.thread_exit = False
         self.p = None
         self.gui = None
-        self.error_blocks = None
+        self.error_blocks = make_error_blocks("");
 
     def get_stat(self):
         if self.p:
@@ -373,7 +373,7 @@ class GHCIProcess:
                 self.p.expect_exact([PROMPT], timeout=1000)
                 output = self.p.before.replace('\r\n', '\n')
                 output = ansi_escape.sub('', output)
-                self.error_blocks = make_error_blocks(output)
+                self.error_blocks = merge_blocks(self.error_blocks, make_error_blocks(output))
                 self.gui.set_errors(self.error_blocks)
                 self.gui.set_output(output)
                 self.write_error_file(self.error_blocks)
@@ -446,6 +446,9 @@ def make_error_blocks(content):
             except:
                 continue
     return {"errors" : errors, "warnings": warnings}
+
+def merge_blocks(errors1, errors2):
+    return {"errors": errors1['errors'] + errors2['errors'], "warnings": errors1['warnings'] + errors2['warnings']}
 
 def print_stats(blocks):
     if blocks is None:
