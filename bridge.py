@@ -360,6 +360,7 @@ class GHCIProcess:
                 self.thread_exit = False
                 return
             self.gui.clear_log()
+            self.error_blocks = make_error_blocks("");
             self.gui.add_log("Waiting for command...")
             ch = os.read(self.read_pipe, 1000).decode().strip()
             for c in ch.split('|'):
@@ -433,18 +434,22 @@ def make_error_blocks(content):
     errors = []
     warnings = []
     if content is not None and len(content) > 0:
-        blocks = content.split("\n\n")
+        if "\n\n" in content:
+            blocks = content.split("\n\n")
+        else:
+            blocks = content.split("\r\n")
         for b in blocks:
             lines = b.strip().split("\n")
-            try:
-                (file_name, line, column, type_,_) = lines[0].split(":")
+            for idx, line in enumerate(lines):
+                try:
+                    (file_name, line, column, type_,_) = line.split(":")
+                except:
+                    continue
                 type_ = type_.strip()
                 if "error" in type_:
-                    errors.append(b)
+                    errors.append('\n'.join(lines[idx:]))
                 elif "warning" in type_:
-                    warnings.append(b)
-            except:
-                continue
+                    warnings.append('\n'.join(lines[idx:]))
     return {"errors" : errors, "warnings": warnings}
 
 def merge_blocks(errors1, errors2):
