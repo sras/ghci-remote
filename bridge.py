@@ -442,8 +442,8 @@ def make_error_blocks(content):
             lines = b.strip().split("\n")
             for idx, line in enumerate(lines):
                 try:
-                    (file_name, line, column, type_,_) = line.split(":")
-                except:
+                    (file_name, line, column, type_, _) = line.split(":")[0:5]
+                except Exception as err :
                     continue
                 type_ = type_.strip()
                 if "error" in type_:
