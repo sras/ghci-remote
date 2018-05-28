@@ -64,9 +64,9 @@ def neovim_indicate_error(blocks):
                     elif len(blocks["warnings"]) > 0:
                         nvim.command("hi StatusLine ctermfg=black ctermbg=yellow")
                     else:
-                        nvim.command("hi StatusLine cternfg=black ctermbg=green")
-                except:
-                    print("Error executing command at neovim")
+                        nvim.command("hi StatusLine ctermfg=black ctermbg=green")
+                except Exception as err:
+                    print("Error executing command at neovim: {}", str(err))
             except:
                 print("Error connecting to neovim")
 
