@@ -53,22 +53,28 @@ def open_file_and_go_to_line_column(file_name, line, col):
         except:
             print("Error connecting to neovim")
 
+def send_neovim_command(command):
+    if has_neovim and neovim_socket is not None:
+        try:
+            nvim = attach('socket', path=neovim_socket)
+            try:
+                nvim.command(command)
+            except Exception as err:
+                print("Error executing command at neovim: {}", str(err))
+        except:
+            print("Error connecting to neovim")
+
+def neovim_indicate_activity():
+    send_neovim_command("hi StatusLine ctermfg=black ctermbg=brown")
+
 def neovim_indicate_error(blocks):
     if blocks is not None:
-        if has_neovim and neovim_socket is not None:
-            try:
-                nvim = attach('socket', path=neovim_socket)
-                try:
-                    if len(blocks["errors"]) > 0:
-                        nvim.command("hi StatusLine ctermfg=black ctermbg=darkred")
-                    elif len(blocks["warnings"]) > 0:
-                        nvim.command("hi StatusLine ctermfg=black ctermbg=yellow")
-                    else:
-                        nvim.command("hi StatusLine ctermfg=black ctermbg=green")
-                except Exception as err:
-                    print("Error executing command at neovim: {}", str(err))
-            except:
-                print("Error connecting to neovim")
+        if len(blocks["errors"]) > 0:
+            send_neovim_command("hi StatusLine ctermfg=black ctermbg=darkred")
+        elif len(blocks["warnings"]) > 0:
+            send_neovim_command("hi StatusLine ctermfg=black ctermbg=yellow")
+        else:
+            send_neovim_command("hi StatusLine ctermfg=black ctermbg=green")
 
 def open_completion(offset, completions):
     if has_neovim and neovim_socket is not None:
@@ -162,6 +168,10 @@ class Gui:
         self.time_string = tkinter.StringVar()
         self.time_string.set("No output yet")
         self.error_file_var = tkinter.StringVar()
+        try:
+            self.error_file_var.set(os.environ['GR_ERROR_FILE'])
+        except:
+            pass
         self.display_errors_var = tkinter.IntVar()
         self.error_file_lock = tkinter.IntVar()
         self.display_warnings_var = tkinter.IntVar()
@@ -370,6 +380,7 @@ class GHCIProcess:
                 self.gui.set_log("Executing `{}`...".format(c))
                 command = self.format_command(c)
                 self.p.sendline(command)
+                neovim_indicate_activity()
                 outlines = []
                 self.p.expect_exact([PROMPT], timeout=1000)
                 output = self.p.before.replace('\r\n', '\n')
