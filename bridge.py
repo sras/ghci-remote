@@ -423,19 +423,16 @@ class GHCIProcess:
         return "{}".format(command.replace('"', '\\"'))
 
 class CommandServer:
-    def __init__(self, command_port, command_queue):
-        self.command_port = command_port
+    def __init__(self, socket, command_queue):
+        self.socket = socket
         self.command_queue = command_queue
         self.thread = threading.Thread(target=self.server, daemon=True)
 
     def server(self):
         print("Starting command server")
-        serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        serversocket.bind(('0.0.0.0', self.command_port))
-        serversocket.listen(5)
+        self.socket.listen(5)
         while True:
-            (clientsocket, address) = serversocket.accept()
+            (clientsocket, address) = self.socket.accept()
             with clientsocket:
                 ghci_command = clientsocket.recv(REC_MAX_LENGTH)
                 clientsocket.sendall("ok".encode())
@@ -494,8 +491,13 @@ def convert_size(size_bytes):
   return "%s %s" % (s, size_name[i])
 
 command_read_pipe, command_write_pipe = os.pipe()
-command_server = CommandServer(COMMAND_PORT, command_write_pipe)
+
+serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+serversocket.bind(('0.0.0.0', COMMAND_PORT))
+command_server = CommandServer(serversocket, command_write_pipe)
 command_server.thread.start()
+
 gui = Gui(has_gui)
 gui.set_ghci(GHCIProcess(command_read_pipe, command_write_pipe))
 gui.ghci_start()
