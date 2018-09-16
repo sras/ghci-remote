@@ -65,16 +65,16 @@ def send_neovim_command(command):
             print("Error connecting to neovim")
 
 def neovim_indicate_activity():
-    send_neovim_command("hi StatusLine ctermfg=black ctermbg=brown")
+    send_neovim_command("call GHCIBridgeSetActivity()")
 
 def neovim_indicate_error(blocks):
     if blocks is not None:
         if len(blocks["errors"]) > 0:
-            send_neovim_command("hi StatusLine ctermfg=black ctermbg=darkred")
+            send_neovim_command("call GHCIBridgeSetErrors()")
         elif len(blocks["warnings"]) > 0:
-            send_neovim_command("hi StatusLine ctermfg=black ctermbg=yellow")
+            send_neovim_command("call GHCIBridgeSetWarnings()")
         else:
-            send_neovim_command("hi StatusLine ctermfg=black ctermbg=green")
+            send_neovim_command("call GHCIBridgeSetSuccess()")
 
 def open_completion(offset, completions):
     if has_neovim and neovim_socket is not None:
@@ -353,7 +353,7 @@ class GHCIProcess:
 
     def do_startup(self):
         self.p = pexpect.spawn("stack", ["ghci"] + sys.argv[1:], encoding=sys.stdout.encoding)
-        self.p.logfile_read = sys.stdout
+        self.p.logfile_read = sys.stdout # Set this to 'sys.stdout' to enable logging...
         outlines = []
         self.p.expect_exact([PROMPT], timeout=1000)
         output = self.p.before.replace('\r\n', '\n') + '\n'
@@ -373,7 +373,7 @@ class GHCIProcess:
             self.error_blocks = make_error_blocks("");
             self.gui.add_log("Waiting for command...")
             ch = os.read(self.read_pipe, 1000).decode().strip()
-            for c in ch.split('|'):
+            for c in ch.split(','):
                 self.gui.log_command(c)
                 if self.execute_config_command(c):
                     continue
@@ -411,7 +411,11 @@ class GHCIProcess:
     def execute_config_command(self, ghci_command):
        if ghci_command[0:7] == 'socket=':
            global neovim_socket
-           [_, neovim_socket] = ghci_command.split('=')
+           try:
+               [_, neovim_socket] = ghci_command.split('=')
+           except:
+               self.gui.log_command("Bad command recieved : {}".format(ghci_command))
+               return False
            return True
        if ghci_command == 'stop_ghci':
            self.p.terminate(force=True)
@@ -435,6 +439,7 @@ class CommandServer:
             (clientsocket, address) = self.socket.accept()
             with clientsocket:
                 ghci_command = clientsocket.recv(REC_MAX_LENGTH)
+                print("Command recieved : {}".format(ghci_command))
                 clientsocket.sendall("ok".encode())
                 os.write(self.command_queue, ghci_command)
 
