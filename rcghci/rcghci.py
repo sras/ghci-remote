@@ -89,92 +89,94 @@ def get_filename_line_col_from_error(content):
     else:
         return None
 
-class GRText(tkinter.Text):
-    def __init__(self, parent, *args, **kw):
-        tkinter.Text.__init__(self, parent, *args, **kw)
-        self.config(bg="#222222", padx=5, pady=5, state="disabled", highlightthickness=0, bd=0)
+if has_gui:
+    class GRText(tkinter.Text):
+        def __init__(self, parent, *args, **kw):
+            tkinter.Text.__init__(self, parent, *args, **kw)
+            self.config(bg="#222222", padx=5, pady=5, state="disabled", highlightthickness=0, bd=0)
 
-    def replace_content(self, content, *args, **kw):
-        self.config(state="normal")
-        self.delete("1.0", tkinter.END)
-        self.insert("0.0", content, *args, **kw)
-        self.config(state="disabled")
+        def replace_content(self, content, *args, **kw):
+            self.config(state="normal")
+            self.delete("1.0", tkinter.END)
+            self.insert("0.0", content, *args, **kw)
+            self.config(state="disabled")
 
-    def append_content(self, content, *args, **kw):
-        self.config(state="normal")
-        self.insert(tkinter.END, content, *args, **kw)
-        self.config(state="disabled")
+        def append_content(self, content, *args, **kw):
+            self.config(state="normal")
+            self.insert(tkinter.END, content, *args, **kw)
+            self.config(state="disabled")
 
-class GRErrorContainer(GRText):
-    def __init__(self, parent, *args, **kw):
-        GRText.__init__(self, parent, *args, **kw)
-        self.link_ix = 0
+    class GRErrorContainer(GRText):
+        def __init__(self, parent, *args, **kw):
+            GRText.__init__(self, parent, *args, **kw)
+            self.link_ix = 0
 
-    def replace_content(self, content, *args, **kw):
-        GRText.replace_content(self, content, *args, **kw)
-        self.link_ix = 0
+        def replace_content(self, content, *args, **kw):
+            GRText.replace_content(self, content, *args, **kw)
+            self.link_ix = 0
 
-    def append_error(self, error, *args, **kw):
-        self.config(state="normal")
-        tag_name = 'link_tag_{}'.format(self.link_ix)
-        self.link_ix = self.link_ix + 1
-        self.tag_configure(tag_name)
-        file_loc = get_filename_line_col_from_error(error)
-        if file_loc is not None:
-            (file_name, line, col) = file_loc
-            self.tag_bind(tag_name, "<1>", lambda event: open_file_and_go_to_line_column(file_name, line, col))
-            self.tag_bind(tag_name, "<Enter>", lambda event: self.configure(cursor="hand1"))
-            self.tag_bind(tag_name, "<Leave>", lambda event: self.configure(cursor="arrow"))
-            self.insert(tkinter.END, error, tag_name)
-        else:
-            self.insert(tkinter.END, error)
-        self.config(state="disabled")
+        def append_error(self, error, *args, **kw):
+            self.config(state="normal")
+            tag_name = 'link_tag_{}'.format(self.link_ix)
+            self.link_ix = self.link_ix + 1
+            self.tag_configure(tag_name)
+            file_loc = get_filename_line_col_from_error(error)
+            if file_loc is not None:
+                (file_name, line, col) = file_loc
+                self.tag_bind(tag_name, "<1>", lambda event: open_file_and_go_to_line_column(file_name, line, col))
+                self.tag_bind(tag_name, "<Enter>", lambda event: self.configure(cursor="hand1"))
+                self.tag_bind(tag_name, "<Leave>", lambda event: self.configure(cursor="arrow"))
+                self.insert(tkinter.END, error, tag_name)
+            else:
+                self.insert(tkinter.END, error)
+            self.config(state="disabled")
 
-class GRWindow(tkinter.PanedWindow):
-    def __init__(self, parent, *args, **kw):
-        tkinter.PanedWindow.__init__(self, parent, *args, **kw)
-        self.config(width=900, bg="#000000", bd=0, sashpad=1, sashwidth=0)
-        self.pack(fill=tkinter.BOTH, expand=0)
+    class GRWindow(tkinter.PanedWindow):
+        def __init__(self, parent, *args, **kw):
+            tkinter.PanedWindow.__init__(self, parent, *args, **kw)
+            self.config(width=900, bg="#000000", bd=0, sashpad=1, sashwidth=0)
+            self.pack(fill=tkinter.BOTH, expand=0)
 
-class GRLockableEntry(tkinter.Frame):
-    def __init__(self, parent, *args, **kw):
-        textvar = kw.pop('textvariable', None)
-        tkinter.Frame.__init__(self, parent, *args, **kw)
-        tv = tkinter.StringVar()
-        tv.set("Error file")
-        self.lock_status = tkinter.IntVar()
-        self.lock_status.set(0)
-        label = tkinter.Label(self, textvariable=tv, bg="#222222", fg="white")
-        self.widget_lock = tkinter.Checkbutton(self, command=self.set_entry_state, text = "Lock", variable = self.lock_status, onvalue = 1, offvalue = 0, fg="white", selectcolor="black", padx=0, highlightthickness=0, bd=0, bg="#222222")
-        self.entry_widget = tkinter.Entry(self, width=30, fg="#00ff00", bg="#000000", disabledbackground="#666666", disabledforeground="black", state=tkinter.DISABLED, textvariable=textvar, bd=0, highlightthickness=0, insertbackground="green")
-        self.entry_widget.pack(side=tkinter.LEFT, padx=5)
-        self.widget_lock.pack(side=tkinter.LEFT)
-        self.set_entry_state()
+    class GRLockableEntry(tkinter.Frame):
+        def __init__(self, parent, *args, **kw):
+            textvar = kw.pop('textvariable', None)
+            tkinter.Frame.__init__(self, parent, *args, **kw)
+            tv = tkinter.StringVar()
+            tv.set("Error file")
+            self.lock_status = tkinter.IntVar()
+            self.lock_status.set(0)
+            label = tkinter.Label(self, textvariable=tv, bg="#222222", fg="white")
+            self.widget_lock = tkinter.Checkbutton(self, command=self.set_entry_state, text = "Lock", variable = self.lock_status, onvalue = 1, offvalue = 0, fg="white", selectcolor="black", padx=0, highlightthickness=0, bd=0, bg="#222222")
+            self.entry_widget = tkinter.Entry(self, width=30, fg="#00ff00", bg="#000000", disabledbackground="#666666", disabledforeground="black", state=tkinter.DISABLED, textvariable=textvar, bd=0, highlightthickness=0, insertbackground="green")
+            self.entry_widget.pack(side=tkinter.LEFT, padx=5)
+            self.widget_lock.pack(side=tkinter.LEFT)
+            self.set_entry_state()
 
-    def set_entry_state(self):
-        if self.lock_status.get() == 1:
-            self.entry_widget.config(state="disabled")
-        else:
-            self.entry_widget.config(state="normal")
+        def set_entry_state(self):
+            if self.lock_status.get() == 1:
+                self.entry_widget.config(state="disabled")
+            else:
+                self.entry_widget.config(state="normal")
 
 class Gui:
     def __init__(self, has_gui):
-        self.root = tkinter.Tk()
         self.log_length = 0
-        self.root.geometry("1360x768")
-        self.root.wm_title("GHCI Remote")
         self.has_gui = has_gui
-        self.seconds_since_output = 0
-        self.time_string = tkinter.StringVar()
-        self.time_string.set("No output yet")
-        self.error_file_var = tkinter.StringVar()
-        try:
-            self.error_file_var.set(os.environ['GR_ERROR_FILE'])
-        except:
-            pass
-        self.display_errors_var = tkinter.IntVar()
-        self.error_file_lock = tkinter.IntVar()
-        self.display_warnings_var = tkinter.IntVar()
+        if has_gui:
+            self.root = tkinter.Tk()
+            self.root.geometry("1360x768")
+            self.root.wm_title("RC GHCI")
+            self.seconds_since_output = 0
+            self.time_string = tkinter.StringVar()
+            self.time_string.set("No output yet")
+            self.error_file_var = tkinter.StringVar()
+            try:
+                self.error_file_var.set(os.environ['GR_ERROR_FILE'])
+            except:
+                pass
+            self.display_errors_var = tkinter.IntVar()
+            self.error_file_lock = tkinter.IntVar()
+            self.display_warnings_var = tkinter.IntVar()
         self.errors = None
         self.ghci = None
         self.initialize()
@@ -184,40 +186,56 @@ class Gui:
         self.update_errors()
 
     def start_gui(self):
-        self.root.mainloop()
+        if self.has_gui:
+            self.root.mainloop()
+        else:
+            self.ghci.thread.join()
+
 
     def set_ghci(self, ghci):
         self.ghci = ghci
         ghci.set_gui(self)
 
     def clear_log(self):
-        self.log_widget.replace_content('')
-        self.log_widget.see(tkinter.END)
+        if self.has_gui:
+            self.log_widget.replace_content('')
+            self.log_widget.see(tkinter.END)
 
     def set_log(self, content):
-        self.log_widget.replace_content(content)
-        self.log_widget.see(tkinter.END)
+        if self.has_gui:
+            self.log_widget.replace_content(content)
+            self.log_widget.see(tkinter.END)
 
     def add_log(self, content):
-        self.log_length += len(content)
-        if (self.log_length > 10000):
-            self.log_widget.replace_content(content)
-            self.log_length = len(content)
-            self.log_widget.see(tkinter.END)
-        else:
-            self.log_widget.append_content(content)
-            self.log_widget.see(tkinter.END)
+        if self.has_gui:
+            self.log_length += len(content)
+            if (self.log_length > 10000):
+                self.log_widget.replace_content(content)
+                self.log_length = len(content)
+                self.log_widget.see(tkinter.END)
+            else:
+                self.log_widget.append_content(content)
+                self.log_widget.see(tkinter.END)
 
     def set_output(self, content):
         self.seconds_since_output = 0
-        self.output_widget.replace_content(content)
+        if self.has_gui:
+            self.output_widget.replace_content(content)
 
     def log_command(self, content):
-        self.command_widget.append_content(content + '\n')
-        self.command_widget.see(tkinter.END)
+        if has_gui:
+            self.command_widget.append_content(content + '\n')
+            self.command_widget.see(tkinter.END)
 
     def get_error_file(self):
-        x = self.error_file_var.get()
+        x = ""
+        if has_gui:
+            x = self.error_file_var.get()
+        else:
+            try:
+                x = os.environ['GR_ERROR_FILE']
+            except:
+                pass
         if len(x) > 0:
             return x
         else:
@@ -271,30 +289,37 @@ class Gui:
             timer_thread.start()
 
     def is_errors_enabled(self):
-        return self.display_errors_var.get()
+        if has_gui:
+            return self.display_errors_var.get()
+        else:
+            return True
 
     def is_warnings_enabled(self):
-        return self.display_warnings_var.get()
+        if has_gui:
+            return self.display_warnings_var.get()
+        else:
+            return True
 
     def update_errors(self):
         blocks = self.errors;
         stats = print_stats(blocks) + "\n\n"
         neovim_indicate_error(blocks)
-        self.errors_widget.replace_content(stats)
-        if self.display_errors_var.get() == 1:
-            for (idx, b) in enumerate(blocks["errors"]):
-                self.errors_widget.append_error("{}. {}".format(idx + 1, b.strip()))
-                self.errors_widget.append_content("\n\n")
-        if self.display_warnings_var.get() == 1:
-            for (idx, b) in enumerate(blocks["warnings"]):
-                self.errors_widget.append_error("{}. {}".format(idx + 1, b.strip()))
-                self.errors_widget.append_content("\n\n")
-        if len(blocks['errors']) > 0:
-            self.errors_widget.config(bg="#D32F2F", fg="white")
-        elif len (blocks['warnings']) > 0:
-            self.errors_widget.config(bg="#222222", fg="yellow")
-        else:
-            self.errors_widget.config(bg="#222222", fg="white")
+        if self.has_gui:
+            self.errors_widget.replace_content(stats)
+            if self.display_errors_var.get() == 1:
+                for (idx, b) in enumerate(blocks["errors"]):
+                    self.errors_widget.append_error("{}. {}".format(idx + 1, b.strip()))
+                    self.errors_widget.append_content("\n\n")
+            if self.display_warnings_var.get() == 1:
+                for (idx, b) in enumerate(blocks["warnings"]):
+                    self.errors_widget.append_error("{}. {}".format(idx + 1, b.strip()))
+                    self.errors_widget.append_content("\n\n")
+            if len(blocks['errors']) > 0:
+                self.errors_widget.config(bg="#D32F2F", fg="white")
+            elif len (blocks['warnings']) > 0:
+                self.errors_widget.config(bg="#222222", fg="yellow")
+            else:
+                self.errors_widget.config(bg="#222222", fg="white")
 
     def time_updater(self):
         while True:
@@ -344,6 +369,7 @@ class GHCIProcess:
     def start(self):
         self.thread = threading.Thread(target=self.thread_callback, daemon=True)
         self.thread.start()
+        return self.thread
 
     def is_running(self):
         if self.p:
@@ -495,15 +521,18 @@ def convert_size(size_bytes):
   s = round(size_bytes / p, 2)
   return "%s %s" % (s, size_name[i])
 
-command_read_pipe, command_write_pipe = os.pipe()
+def main():
+    global command_read_pipe, command_write_pipe
+    command_read_pipe, command_write_pipe = os.pipe()
+    
+    serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    serversocket.bind(('0.0.0.0', COMMAND_PORT))
+    command_server = CommandServer(serversocket, command_write_pipe)
+    command_server.thread.start()
 
-serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-serversocket.bind(('0.0.0.0', COMMAND_PORT))
-command_server = CommandServer(serversocket, command_write_pipe)
-command_server.thread.start()
+    gui = Gui(has_gui)
+    gui.set_ghci(GHCIProcess(command_read_pipe, command_write_pipe))
+    gui.ghci_start()
+    gui.start_gui()
 
-gui = Gui(has_gui)
-gui.set_ghci(GHCIProcess(command_read_pipe, command_write_pipe))
-gui.ghci_start()
-gui.start_gui()
