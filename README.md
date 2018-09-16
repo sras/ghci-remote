@@ -1,35 +1,23 @@
-# ghci-remote
+# rcghci - A remote control for GHCI
 
-This is a simple python3 script that wraps a "stack ghci" command, capture its input/output and display it in a Python gui.
-The python script opens 3 network sockets. You can send text commands to one of these socket and the script will relay 
-it to the wrapped REPL and display its output. The output is parsed and if there are errors/warnings they will be formatted and 
-displayed in a separate pane. In total, there are 6 section for the gui.
+This is a simple python3 script that wraps a "stack ghci" command. 
 
-1. Info/Status pane which keep displaying the memory usage of the running ghci processes
-2. Output of the last command
-3. Parsed errors/warnings display of the last command's output
-4. Output log of the ghci process
-5. Command log that shows commands recieved via the network socket
-6. Interface for entering error file path and buttons for stop/start/restart of ghci instance and checkboxes for
-hiding errors/warnings.
+1. It acts as a proxy that relays commands recieved on a tcp socket to the GHCI process.
+2. If the required libs are available (TKInter gui library), it opens a GUI where the output from the ghci process and some configuration options are displayed.
+3. It parses the output from GHCI process, seperate errors and warnings, counts them and display the report on the gui.
+4. It also writes the output, to a text file. Editors can use this file to navigate through error locations in the source.
+5. It can also control the neovim editor via its RPC api, and do things like change the color of its status bar to indicate progress, error and success.
 
 # Installing
 
 This script uses Tkinter library to draw the GUI. So you have to install it for Python3. If you are on Linux you 
-probaby can just do something like to install it.
+probaby can just do something like the following to install it.
 
 ```
 sudo apt-get install python3-tk
 ```
 
-Then you have to install the [pexpect]((https://pexpect.readthedocs.io/en/stable/) python library.
-
-```
-pip3 install pexpect
-```
-
-There are two optional dependencies. https://pypi.python.org/pypi/psutil and the neovim module. If you have psutils, the 
-script will show the memory usage of all running ghc instances. If you install neovim module, you will be able to click on the error messages displayed in the gui, and have the file opened and cursor placed on the error in a running neovim instance. 
+The script will work even if you don't have this library. Just that the gui will not show up.
 
 # How to use?
 
