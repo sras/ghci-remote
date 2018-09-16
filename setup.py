@@ -13,6 +13,8 @@ setup(
         "console_scripts":['rcghci=rcghci.rcghci:main']
     },
     install_requires=[
-      'pexpect'
+      'pexpect',
+      'psutil',
+      'neovim'
     ]
 )
