@@ -186,11 +186,14 @@ class Gui:
         self.update_errors()
 
     def start_gui(self):
-        if self.has_gui:
-            self.root.mainloop()
-        else:
-            self.ghci.thread.join()
-
+        try:
+            if self.has_gui:
+                self.root.mainloop()
+                self.ghci_quit()
+            else:
+                self.ghci.thread.join()
+        except KeyboardInterrupt:
+            self.ghci_quit()
 
     def set_ghci(self, ghci):
         self.ghci = ghci
@@ -248,7 +251,7 @@ class Gui:
             self.ghci.start()
 
     def ghci_quit(self):
-        self.ghci.send_command("stop_ghci")
+        self.ghci.quit()
 
     def initialize(self):
         if self.has_gui:
@@ -363,8 +366,9 @@ class GHCIProcess:
     def set_gui(self, gui):
         self.gui = gui
 
-    def send_command(self, command):
-        os.write(self.write_pipe, "stop_ghci".encode())
+    def quit(self):
+        self.thread_exit = True
+        os.write(self.write_pipe, ":quit".encode())
 
     def start(self):
         self.thread = threading.Thread(target=self.thread_callback, daemon=True)
@@ -398,7 +402,11 @@ class GHCIProcess:
             self.gui.clear_log()
             self.error_blocks = make_error_blocks("");
             self.gui.add_log("Waiting for command...")
-            ch = os.read(self.read_pipe, 1000).decode().strip()
+            try:
+                ch = os.read(self.read_pipe, 1000).decode().strip()
+            except Exception as err :
+                print("An exception was caught: {}".format(err))
+                continue;
             for c in ch.split(','):
                 self.gui.log_command(c)
                 if self.execute_config_command(c):
@@ -408,7 +416,11 @@ class GHCIProcess:
                 self.p.sendline(command)
                 neovim_indicate_activity()
                 outlines = []
-                self.p.expect_exact([PROMPT], timeout=1000)
+                try:
+                    self.p.expect_exact([PROMPT], timeout=1000)
+                except Exception as err :
+                    print("Exception while waiting for the GHCI prompt! This is alright if you stopped the GHCI process.")
+                    continue;
                 output = self.p.before.replace('\r\n', '\n')
                 output = ansi_escape.sub('', output)
                 self.error_blocks = merge_blocks(self.error_blocks, make_error_blocks(output))
