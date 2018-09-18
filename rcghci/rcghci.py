@@ -171,7 +171,7 @@ class Gui:
             self.time_string.set("No output yet")
             self.error_file_var = tkinter.StringVar()
             try:
-                self.error_file_var.set(os.environ['GR_ERROR_FILE'])
+                self.error_file_var.set(os.environ['RCGHCI_ERROR_FILE'])
             except:
                 pass
             self.display_errors_var = tkinter.IntVar()
@@ -236,7 +236,7 @@ class Gui:
             x = self.error_file_var.get()
         else:
             try:
-                x = os.environ['GR_ERROR_FILE']
+                x = os.environ['RCGHCI_ERROR_FILE']
             except:
                 pass
         if len(x) > 0:
@@ -339,10 +339,11 @@ class Gui:
         if self.has_gui:
             tkinter.messagebox.showinfo("Error!", "GHCI is still running")
 
-COMMAND_PORT = 1880
-OUTPUT_PORT = 1881
-ERROR_PORT = 1882
-LOG_PORT = 1883
+try:
+    COMMAND_PORT = os.environ['RCGHCI_PORT']
+except:
+    COMMAND_PORT = 1880
+
 REC_MAX_LENGTH = 4096
 PROMPT = "GHCIBRIDGEPROMPT>>>"
 
