@@ -413,7 +413,7 @@ class GHCIProcess:
                 if self.execute_config_command(c):
                     continue
                 self.gui.set_log("Executing `{}`...".format(c))
-                command = self.format_command(c)
+                command = c
                 self.p.sendline(command)
                 neovim_indicate_activity()
                 outlines = []
@@ -461,9 +461,6 @@ class GHCIProcess:
            self.thread_exit = True
            return True
        return False
-
-    def format_command(self, command):
-        return "{}".format(command.replace('"', '\\"'))
 
 class CommandServer:
     def __init__(self, socket, command_queue):
