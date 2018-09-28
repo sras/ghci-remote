@@ -7,7 +7,7 @@ setup(
     author='Sandeep.C.R',
     author_email='sandeepcr2@gmail.com',
     license='MIT',
-    version = "1.03",
+    version = "1.4",
     packages = ['rcghci'],
     entry_points = {
         "console_scripts":['rcghci=rcghci.rcghci:main']

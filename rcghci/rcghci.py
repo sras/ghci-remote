@@ -27,13 +27,16 @@ try:
     has_gui = True
 except:
     has_gui = False
-    print("TkInter module not available, or there was an error initializing it. Proceeding without gui")
+    log("TkInter module not available, or there was an error initializing it. Proceeding without gui")
 
 try:
     from neovim import attach
     has_neovim = True
 except:
     has_neovim = False
+
+def log(msg):
+    print("RCGHCI: {}".format(msg))
 
 error_re = re.compile(r' (.*):(\d+):(\d+): (warning|error):')
 ansi_escape = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
@@ -49,9 +52,9 @@ def open_file_and_go_to_line_column(file_name, line, col):
             try:
                 nvim.command('e +{} {}'.format(r'call\ cursor({},{})|execute\ "normal"\ "V"'.format(line, col), file_name))
             except:
-                print("Error executing command at neovim")
+                log("Error executing command at neovim")
         except:
-            print("Error connecting to neovim")
+            log("Error connecting to neovim")
 
 def send_neovim_command(command):
     if has_neovim and neovim_socket is not None:
@@ -60,9 +63,9 @@ def send_neovim_command(command):
             try:
                 nvim.command(command)
             except Exception as err:
-                print("Error executing command at neovim: {}", str(err))
+                log("Error executing command at neovim: {}", str(err))
         except:
-            print("Error connecting to neovim")
+            log("Error connecting to neovim")
 
 def neovim_indicate_activity():
     send_neovim_command("call GHCIBridgeSetActivity()")
@@ -79,7 +82,7 @@ def neovim_indicate_error(blocks):
 def open_completion(offset, completions):
     if has_neovim and neovim_socket is not None:
         nvim = attach('socket', path=neovim_socket)
-        print("call complete(col('.') - {}, {})".format(offset, str(completions)))
+        log("call complete(col('.') - {}, {})".format(offset, str(completions)))
         nvim.command("call complete(col('.') - {}, {})".format(offset, str(completions)))
 
 def get_filename_line_col_from_error(content):
@@ -345,7 +348,17 @@ except:
     COMMAND_PORT = 1880
 
 REC_MAX_LENGTH = 4096
-PROMPT = "GHCIBRIDGEPROMPT>>>"
+
+try:
+    PROMPT = os.environ['RCGHCI_PROMPT']
+    if len(PROMPT) < 5:
+        log("ERROR ! Empty or short prompt found. Please use a prompt with more than five characters. You can configure the GHCI prompt by adding the line ':set prompt <prompt>' to ~/.ghci file. Then configure rcghci to use that prompt by setting the RCGHCI_PROMPT env variable using 'export RCGHCI_PROMPT=<prompt>' command from termial, before starting RCGHCI.")
+        sys.exit(0)
+except KeyError:
+    log("ERROR ! The RCGHCI_PROMPT environment variable was not found. ")
+    sys.exit(0)
+
+log("Using prompt : {}".format(PROMPT))
 
 p = None
 gui = None
@@ -469,13 +482,13 @@ class CommandServer:
         self.thread = threading.Thread(target=self.server, daemon=True)
 
     def server(self):
-        print("Starting command server")
+        log("Starting command server")
         self.socket.listen(5)
         while True:
             (clientsocket, address) = self.socket.accept()
             with clientsocket:
                 ghci_command = clientsocket.recv(REC_MAX_LENGTH)
-                print("Command recieved : {}".format(ghci_command))
+                log("Command recieved : {}".format(ghci_command))
                 clientsocket.sendall("ok".encode())
                 os.write(self.command_queue, ghci_command)
 
