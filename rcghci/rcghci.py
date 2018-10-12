@@ -343,7 +343,7 @@ class Gui:
             tkinter.messagebox.showinfo("Error!", "GHCI is still running")
 
 try:
-    COMMAND_PORT = os.environ['RCGHCI_PORT']
+    COMMAND_PORT = int(os.environ['RCGHCI_PORT'])
 except:
     COMMAND_PORT = 1880
 
