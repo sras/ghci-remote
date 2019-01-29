@@ -1,34 +1,40 @@
 # rcghci - A remote control for GHCI
 
-This is a python3 script that wraps a "stack ghci" command. 
+This is a python3 script that straps on something like a RPC interface to a GHCI process.
 
-1. It acts as a proxy that relays commands recieved on a tcp socket to the GHCI process.
-2. If the required libs are available (TKInter gui library), it opens a GUI where the output from the ghci process and some configuration options are displayed.
-3. It parses the output from GHCI process, seperate errors and warnings and displays them on the gui.
-4. It also writes the output, to a text file. Editors can use this file to navigate through error locations in the source.
-5. Right now, it can also control the Neovim editor via its RPC api, and do things like change the color of its status bar to indicate progress, error and success.
-
-# Installing
-
-rcghci can be installed by using pip3.
+You can install it using `pip`
 
 ```
 pip3 install rcghci
-````
+```
 
-The Tkinter library for gui might need separate installation. If you are on Ubuntu or similar distributions you probably only have to do the `sudo apt-get install python3-tk`. The script will work even if you don't have this library. Just that the gui will not show up. Instead you will be able to 
+To start it, open a terminal and set the following environment variables.
 
-1. See the ghci output in the terminal.
-2. Get error output in a file, whoes location can be configured by the environment variable `GR_ERROR_FILE`.
-3. Make use of Neovim editor integrations.
+```
+export RCGHCI_ERROR_FILE=/home/<username>/errors.txt
+export RCGHCI_PROMPT='RCGHCIPROMPT>>>'
+```
 
-# Configuring the Neovim editor
+Now change directory to your project, and instead of running `stack ghci`
+run `rcghci` followed by what ever options that you have to pass to the `stack ghci` command.
 
-Add the following vim script to be included in your neovim configuration.
+You will see the `stack ghci` command starting up, and if you have the `tkinter` library installed
+a gui will open up.
+
+You can install the tkinter library using the following command
+
+```
+sudo apt-get install python3-tk
+```
+
+### Configuring neovim
+
+Add the following lines to you neovim configuration.
 
 ```
 let g:rcghci_ip = "127.0.0.1"
 let g:rcghci_port = "1880"
+let g:error_path = "~"
 
 function! Ghci(command)
   silent exec "!echo ". a:command . "> /dev/tcp/" . g:rcghci_ip . "/" . g:rcghci_port
@@ -50,23 +56,44 @@ function! GHCIBridgeSetActivity()
   hi StatusLine ctermfg=black guibg=black ctermbg=brown guifg=orange
 endfunction
 
-command! HLiveCompile call SetLiveCompile(1)
-command! HNoLiveCompile call SetLiveCompile(0)
+function! LiveCompile()
+  call Ghci(":reload")
+endfunction
+
+function! OpenErrors()
+  execute ":cclose"
+  execute ":cfile " . g:error_path ."/errors.txt"
+  execute ":cope"
+endfunction
+
+function! CloseErrors()
+  cclose
+endfunction
+
 command! HSendConfig call Ghci("socket=".$NVIM_LISTEN_ADDRESS)
 
 autocmd BufWritePost *.hs call LiveCompile()
-
-function! SetLiveCompile(lc)
-  let g:live_compile = a:lc
-endfunction
-
-function! LiveCompile()
-  if exists("g:live_compile") && g:live_compile == 1
-    call Ghci(":reload")
-  endif
-endfunction
-
 ```
 
+After you start the nvim editor, just call the `HSendConfig` command, which sends the neovim rpc socket
+to the RCGHCI script.
 
+open a Haskell source file in your project (The same one you have started the rcghci script in) to start using the script.
 
+# Live Reload
+
+The neovim configuration we have added will send a reload command to the script when a Haskell file is saved. This causes
+the wrapped rcghci script to do a ":reload" command, and ends up reloading all the changed files. The output of the ghci
+process is parsed by the script into errors and warnings. These are then written to an error file, who's path we have configured
+using the `RCGHCI_ERROR_FILE` environment variable. We have also set the path of the vim error file to be the same. This means
+you can use vim's native error file navigation capabilities to navigate the error locations, including the ability to open them
+in the editor simply by pressing `enter` when the cursor is on the path in the vim's error list display.
+
+When you have triggerred a reload by saving a Haskell source file, the script will change the color of the status bar to indicate
+that a command is in progress. It will switch the status bar color after the command has finished execution. If there are any errors
+it will be a different color. You can configure the colors by changing them in the `GHCIBridgeSetErrors()`, `GHCIBridgeSetWarnings()`
+functions.
+
+# Using the GUI
+
+You can also open an error location in neovim by clicking on the error that is displayed in the gui.
