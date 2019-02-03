@@ -296,23 +296,26 @@ def convert_size(size_bytes):
   return "%s %s" % (s, size_name[i])
 
 def main():
-    global command_read_pipe, command_write_pipe
-    command_read_pipe, command_write_pipe = os.pipe()
-    
-    serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    serversocket.bind(('0.0.0.0', COMMAND_PORT))
-    editor = Editor()
+    try:
+        global command_read_pipe, command_write_pipe
+        command_read_pipe, command_write_pipe = os.pipe()
+        
+        serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        serversocket.bind(('0.0.0.0', COMMAND_PORT))
+        editor = Editor()
 
-    ghci = GHCIProcess(command_read_pipe, command_write_pipe)
-    ghci.set_editor(editor)
-    ghci.start()
+        ghci = GHCIProcess(command_read_pipe, command_write_pipe)
+        ghci.set_editor(editor)
+        ghci.start()
 
-    command_server = CommandServer(serversocket, command_write_pipe)
-    command_server.thread.start()
+        command_server = CommandServer(serversocket, command_write_pipe)
+        command_server.thread.start()
 
-    gui = Gui()
-    ghci.set_gui(gui)
-    gui.set_ghci(ghci)
+        gui = Gui()
+        ghci.set_gui(gui)
+        gui.set_ghci(ghci)
 
-    ghci.thread.join()
+        ghci.thread.join()
+    except KeyboardInterrupt:
+        remove_init_file()

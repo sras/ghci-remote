@@ -6,21 +6,25 @@ import time
 import tempfile
 
 def wait_for_init():
+    fn = tempfile.gettempdir() + "/rcghci"
     while True:
         try:
-            with open(tempfile.gettempdir() + "/rcghci", "r") as f:
-                c = f.read()
-        except Exception as v:
-            exception(v)
+            with open(fn, "r") as f:
+                port = f.read()
+                break
+        except FileNotFoundError:
             print("RCGHCI status file not found. Looking after a bit...")
             time.sleep(1)
-    return ("", "")
+        except Exception as e:
+            exception(e)
+    return (int(port), "")
 
 def main():
     (port, nvim_addr) = wait_for_init()
+    print(port)
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    client_socket.connect(('0.0.0.0', 1881))
+    client_socket.connect(('0.0.0.0', port + 1))
     msg = bytes()
     while True:
         a = client_socket.recv(1024)
@@ -30,10 +34,11 @@ def main():
             msg = bytes()
             process_message(v)
         except Exception as v:
+            print(v)
             pass
 
 def exception(e):
-    print("There was an error : {}".format(str(e)))
+    print("There was an error : {}".format(e))
 
 def get_error_file():
     try:
