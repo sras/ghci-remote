@@ -169,7 +169,7 @@ class GHCIProcess:
         outlines = []
         self.process.expect_exact([PROMPT], timeout=1000)
         output = self.process.before.replace('\r\n', '\n') + '\n'
-        output = ansi_escape.sub('', output)
+        # output = ansi_escape.sub('', output)
         self.gui.set_log("Got prompt > ")
         self.error_blocks = make_error_blocks(output)
         self.gui.set_status(output, self.error_blocks)
@@ -255,14 +255,16 @@ def make_error_blocks(content):
             lines = b.strip().split("\n")
             for idx, line in enumerate(lines):
                 try:
-                    (file_name, line, column, type_, _) = line.split(":")[0:5]
+                    (file_name, line, column, type_, msg) = line.split(":")[0:5]
                 except Exception as err :
                     continue
                 type_ = type_.strip()
+                err_msg = "\n".join(lines[idx:])
+                full_item =  {'file_name': file_name, 'line': line, 'column' : column, 'text': err_msg }
                 if "error" in type_:
-                    errors.append('\n'.join(lines[idx:]))
+                    errors.append(full_item)
                 elif "warning" in type_:
-                    warnings.append('\n'.join(lines[idx:]))
+                    warnings.append(full_item)
     return {"errors" : errors, "warnings": warnings}
 
 def merge_blocks(errors1, errors2):
@@ -295,8 +297,7 @@ def convert_size(size_bytes):
   s = round(size_bytes / p, 2)
   return "%s %s" % (s, size_name[i])
 
-def main():
-    try:
+def _main():
         global command_read_pipe, command_write_pipe
         command_read_pipe, command_write_pipe = os.pipe()
         
@@ -317,5 +318,9 @@ def main():
         gui.set_ghci(ghci)
 
         ghci.thread.join()
+
+def main():
+    try:
+        _main()
     except KeyboardInterrupt:
         remove_init_file()
