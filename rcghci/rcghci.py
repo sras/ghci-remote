@@ -24,6 +24,8 @@ error_re = re.compile(r' (.*):(\d+):(\d+): (warning|error):')
 ansi_escape = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
 neovim_socket = None
 
+EDITOR_ID = '-- editor'.encode('utf-8')
+
 def new_queue():
     return queue.Queue(maxsize=10000000)
 
@@ -35,7 +37,6 @@ except:
 with open(tempfile.gettempdir() + "/rcghci", "w") as f:
     f.write(str(COMMAND_PORT))
 
-EDITOR_PORT = COMMAND_PORT + 1
 GUI_PORT = COMMAND_PORT + 2
 
 REC_MAX_LENGTH = 4096
@@ -57,28 +58,19 @@ def remove_init_file():
 class Editor:
     def __init__(self):
         self.editor_connections = []
-        t = threading.Thread(target=self.server, daemon=True)
-        t.start()
 
-    def server(self):
-        serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        serversocket.bind(('0.0.0.0', EDITOR_PORT))
-        serversocket.listen(5)
-        while True:
-            (clientsocket, address) = serversocket.accept()
-            log("Editor adapter connected")
-            self.editor_connections.append(clientsocket)
+    def add_editor(self, socket, idf):
+        self.editor_connections.append((socket, idf))
 
     def send_msg(self, msg):
         new = []
         log("Sending message")
-        for c in self.editor_connections:
+        for (c, idf) in self.editor_connections:
              try:
                  s = c.sendall(json.dumps(msg).encode())
-                 new.append(c)
+                 new.append((c, idf))
              except Exception as e:
-                 log("Error in Sending : {}".format(str(e)))
+                 log("Error in Sending : {} to {}".format(str(e), idf))
                  pass
         self.editor_connections = new
 
@@ -212,14 +204,6 @@ class GHCIProcess:
                     break
 
     def execute_config_command(self, ghci_command):
-       if ghci_command[0:7] == 'socket=':
-           global neovim_socket
-           try:
-               [_, neovim_socket] = ghci_command.split('=')
-           except:
-               self.gui.log_command("Bad command recieved : {}".format(ghci_command))
-               return False
-           return True
        if ghci_command == 'stop_ghci':
            self.process.terminate(force=True)
            self.thread_exit = True
@@ -232,15 +216,22 @@ class CommandServer:
         self.command_queue = command_queue
         self.thread = threading.Thread(target=self.server, daemon=True)
 
+    def set_editor(self, editor):
+        self.editor = editor
+
     def server(self):
         log("Starting command server")
         self.socket.listen(5)
         while True:
             (clientsocket, address) = self.socket.accept()
-            with clientsocket:
-                ghci_command = clientsocket.recv(REC_MAX_LENGTH)
+            ghci_command = clientsocket.recv(REC_MAX_LENGTH)
+            if ghci_command.startswith(EDITOR_ID):
+                self.editor.add_editor(clientsocket, ghci_command[len(EDITOR_ID):])
+                log("Editor adapter connected")
+            else:
                 log("Command recieved : {}".format(ghci_command))
                 clientsocket.sendall("ok".encode())
+                clientsocket.close()
                 os.write(self.command_queue, ghci_command)
 
 def make_error_blocks(content):
@@ -311,6 +302,7 @@ def _main():
         ghci.start()
 
         command_server = CommandServer(serversocket, command_write_pipe)
+        command_server.set_editor(editor)
         command_server.thread.start()
 
         gui = Gui()

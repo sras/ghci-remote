@@ -28,7 +28,8 @@ def main():
     nvim = get_nvim()
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    client_socket.connect(('0.0.0.0', port + 1))
+    client_socket.connect(('0.0.0.0', port))
+    client_socket.sendall("-- editor neovim".encode('utf-8'))
     msg = bytes()
     while True:
         a = client_socket.recv(1024)
