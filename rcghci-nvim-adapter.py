@@ -4,7 +4,10 @@ import json
 import os
 import time
 import tempfile
-from pynvim import attach, NvimError
+try:
+    from pynvim import attach, NvimError
+except ImportError:
+    print("You need 'neovim' python library to run this adapter. Please install it using pip")
 
 def get_nvim():
     return attach('socket', path=get_nvim_address())

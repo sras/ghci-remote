@@ -210,7 +210,7 @@ class GHCIProcess:
            return True
        return False
 
-class CommandServer:
+class MasterServer:
     def __init__(self, socket, command_queue):
         self.socket = socket
         self.command_queue = command_queue
@@ -226,8 +226,9 @@ class CommandServer:
             (clientsocket, address) = self.socket.accept()
             ghci_command = clientsocket.recv(REC_MAX_LENGTH)
             if ghci_command.startswith(EDITOR_ID):
-                self.editor.add_editor(clientsocket, ghci_command[len(EDITOR_ID):])
-                log("Editor adapter connected")
+                editor_id = ghci_command[len(EDITOR_ID):].decode().strip()
+                self.editor.add_editor(clientsocket, editor_id )
+                log("Editor adapter {} connected...".format(editor_id))
             else:
                 log("Command recieved : {}".format(ghci_command))
                 clientsocket.sendall("ok".encode())
@@ -270,15 +271,6 @@ def print_stats(blocks):
 def format_memory_info(mi):
     return "{}".format(convert_size(mi.rss))
 
-def get_ghci_process_stat(pid):
-    if has_psutil:
-        try:
-            return " | ".join(["pid={}{}, Mem = {}({}%)".format(x.pid, "*" if x.ppid() == pid else "", format_memory_info(x.memory_info()), round(x.memory_percent(), 2)) for x in psutil.process_iter() if x.name() =="ghc"])
-        except:
-            return "Not available"
-    else:
-        return "Not available"
-
 def convert_size(size_bytes):
   if size_bytes == 0:
       return "0B"
@@ -291,7 +283,7 @@ def convert_size(size_bytes):
 def _main():
         global command_read_pipe, command_write_pipe
         command_read_pipe, command_write_pipe = os.pipe()
-        
+
         serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         serversocket.bind(('0.0.0.0', COMMAND_PORT))
@@ -301,9 +293,9 @@ def _main():
         ghci.set_editor(editor)
         ghci.start()
 
-        command_server = CommandServer(serversocket, command_write_pipe)
-        command_server.set_editor(editor)
-        command_server.thread.start()
+        master_server = MasterServer(serversocket, command_write_pipe)
+        master_server.set_editor(editor)
+        master_server.thread.start()
 
         gui = Gui()
         ghci.set_gui(gui)

@@ -7,14 +7,10 @@ setup(
     author='Sandeep.C.R',
     author_email='sandeepcr2@gmail.com',
     license='MIT',
-    version = "1.4",
+    version = "1.5",
     packages = ['rcghci'],
     entry_points = {
         "console_scripts":['rcghci=rcghci.rcghci:main']
     },
-    install_requires=[
-      'pexpect',
-      'psutil',
-      'neovim'
-    ]
+    install_requires=[ 'pexpect' ]
 )
