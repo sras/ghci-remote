@@ -79,15 +79,22 @@ def call_vim_function(fnc, nvim):
             pass
 
 def process_message(msg, nvim):
-    if msg == 'indicate_activity':
+    if msg['op'] == 'indicate_activity':
         call_vim_function('RCGHCIIndicateActivity')
-    elif 'status' in msg:
+    elif msg['op'] == 'indicate_progress':
         try:
-            elist = build_error_list(msg['status'])
+            print(msg['data'])
+            nvim.call('RCGHCIIndicateProgress', msg['data'])
+        except NvimError as e:
+            print("Warning: No function {} defined in Neovim.".format('RCGHCIIndicateProgress'))
+
+    elif msg['op'] == 'status_update':
+        try:
+            elist = build_error_list(msg['data']['status'])
             nvim.call('setqflist', [], 'r', {"items": elist, "title": "RCGHCI Error list"})
-            if len(msg['status']['errors']) > 0:
+            if len(msg['data']['status']['errors']) > 0:
                 call_vim_function('RCGHCIIndicateError', nvim)
-            elif len(msg['status']['warnings']) > 0:
+            if len(msg['data']['status']['warnings']) > 0:
                 call_vim_function('RCGHCIIndicateWarnings', nvim)
             else:
                 call_vim_function('RCGHCIIndicateSuccess', nvim)
