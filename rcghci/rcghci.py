@@ -17,7 +17,7 @@ import pexpect.exceptions
 import json
 import tempfile
 
-VERSION = "2.0.9"
+VERSION = "2.1.1"
 
 def log(msg):
     print("RCGHCI: {}".format(msg))
