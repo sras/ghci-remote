@@ -24,6 +24,8 @@ error_re = re.compile(r' (.*):(\d+):(\d+): (warning|error):')
 ansi_escape = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
 neovim_socket = None
 
+progress_re = re.compile('\[\s*(\d+) of (\d+)\]')
+
 EDITOR_ID = '-- editor'.encode('utf-8')
 
 def new_queue():
@@ -62,6 +64,10 @@ class Editor:
     def add_editor(self, socket, idf):
         self.editor_connections.append((socket, idf))
 
+    def send_progress(self, percent, stats = None):
+        data = {"progress": percent, "stats": stats}
+        self.send_msg({"op": 'indicate_progress', "data": data})
+
     def send_msg(self, msg):
         new = []
         log("Sending message")
@@ -75,10 +81,10 @@ class Editor:
         self.editor_connections = new
 
     def indicate_activity(self):
-        self.send_msg("indicate_activity")
+        self.send_msg({"op": 'indicate_activity'})
 
     def set_status(self, output, errors):
-        self.send_msg({"status": errors, "output": output})
+        self.send_msg({"op": "status_update", "data": {"status": errors, "output": output}})
 
 class Gui:
     def set_log(self, content):
@@ -159,13 +165,24 @@ class GHCIProcess:
         self.process = pexpect.spawn("stack", ["ghci"] + sys.argv[1:], encoding=sys.stdout.encoding)
         self.process.logfile_read = sys.stdout # Set this to 'sys.stdout' to enable logging...
         outlines = []
-        self.process.expect_exact([PROMPT], timeout=1000)
+        self.expect()
         output = self.process.before.replace('\r\n', '\n') + '\n'
         # output = ansi_escape.sub('', output)
         self.gui.set_log("Got prompt > ")
         self.error_blocks = make_error_blocks(output)
         self.gui.set_status(output, self.error_blocks)
         self.editor.set_status(output, self.error_blocks)
+
+    def expect(self):
+        while True:
+            m = self.process.expect([PROMPT, progress_re], timeout=1000)
+            if m == 1:
+                match = self.process.match
+                (d, a) = match.group(1, 2)
+                self.editor.send_progress((int(d)/int(a)) *  100, (d, a))
+            else:
+                self.editor.send_progress(100)
+                break
 
     def thread_callback(self):
         self.do_startup()
@@ -183,15 +200,13 @@ class GHCIProcess:
                 continue;
             for c in ch.split(','):
                 self.gui.log_command(c)
-                if self.execute_config_command(c):
-                    continue
                 self.gui.set_log("Executing `{}`...".format(c))
                 command = c
                 self.process.sendline(command)
                 self.editor.indicate_activity()
                 outlines = []
                 try:
-                    self.process.expect_exact([PROMPT], timeout=1000)
+                    self.expect()
                 except Exception as err :
                     print("Exception while waiting for the GHCI prompt! This is alright if you stopped the GHCI process.")
                     continue;
@@ -202,13 +217,6 @@ class GHCIProcess:
                 self.editor.set_status(output, self.error_blocks)
                 if len(self.error_blocks["errors"]) > 0:
                     break
-
-    def execute_config_command(self, ghci_command):
-       if ghci_command == 'stop_ghci':
-           self.process.terminate(force=True)
-           self.thread_exit = True
-           return True
-       return False
 
 class MasterServer:
     def __init__(self, socket, command_queue):
@@ -262,46 +270,28 @@ def make_error_blocks(content):
 def merge_blocks(errors1, errors2):
     return {"errors": errors1['errors'] + errors2['errors'], "warnings": errors1['warnings'] + errors2['warnings']}
 
-def print_stats(blocks):
-    if blocks is None:
-        return "Not an error/warning output"
-    else:
-        return("errors: {}, warnings : {}".format(len(blocks["errors"]), len(blocks["warnings"])))
-
-def format_memory_info(mi):
-    return "{}".format(convert_size(mi.rss))
-
-def convert_size(size_bytes):
-  if size_bytes == 0:
-      return "0B"
-  size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
-  i = int(math.floor(math.log(size_bytes, 1024)))
-  p = math.pow(1024, i)
-  s = round(size_bytes / p, 2)
-  return "%s %s" % (s, size_name[i])
-
 def _main():
-        global command_read_pipe, command_write_pipe
-        command_read_pipe, command_write_pipe = os.pipe()
+    global command_read_pipe, command_write_pipe
+    command_read_pipe, command_write_pipe = os.pipe()
 
-        serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        serversocket.bind(('0.0.0.0', COMMAND_PORT))
-        editor = Editor()
+    serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    serversocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    serversocket.bind(('0.0.0.0', COMMAND_PORT))
+    editor = Editor()
 
-        ghci = GHCIProcess(command_read_pipe, command_write_pipe)
-        ghci.set_editor(editor)
-        ghci.start()
+    ghci = GHCIProcess(command_read_pipe, command_write_pipe)
+    ghci.set_editor(editor)
+    ghci.start()
 
-        master_server = MasterServer(serversocket, command_write_pipe)
-        master_server.set_editor(editor)
-        master_server.thread.start()
+    master_server = MasterServer(serversocket, command_write_pipe)
+    master_server.set_editor(editor)
+    master_server.thread.start()
 
-        gui = Gui()
-        ghci.set_gui(gui)
-        gui.set_ghci(ghci)
+    gui = Gui()
+    ghci.set_gui(gui)
+    gui.set_ghci(ghci)
 
-        ghci.thread.join()
+    ghci.thread.join()
 
 def main():
     try:

@@ -83,8 +83,11 @@ def process_message(msg, nvim):
         call_vim_function('RCGHCIIndicateActivity')
     elif msg['op'] == 'indicate_progress':
         try:
-            print(msg['data'])
-            nvim.call('RCGHCIIndicateProgress', msg['data'])
+            try:
+                stat = msg['data']['stat']
+            except KeyError:
+                stat = ''
+            nvim.call('RCGHCIIndicateProgress', msg['data']['progress'], stat)
         except NvimError as e:
             print("Warning: No function {} defined in Neovim.".format('RCGHCIIndicateProgress'))
 
