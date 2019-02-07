@@ -41,12 +41,8 @@ def main():
             v = json.loads(msg.decode())
             msg = bytes()
             process_message(v, nvim)
-        except Exception as v:
-            if len(a) == 0:
-                exception(v)
-                break
-            else:
-                pass
+        except json.decoder.JSONDecodeError as v:
+            pass
 
 def exception(e):
     print("There was an error : {} - {}".format(e.__class__.__name__, e))
@@ -76,28 +72,17 @@ def call_vim_function(fnc, nvim):
             nvim.call(fnc)
         except NvimError as e:
             print("Warning: No function {} defined in Neovim.".format(fnc))
-            pass
 
 def process_message(msg, nvim):
     if msg['op'] == 'indicate_activity':
-        call_vim_function('RCGHCIIndicateActivity')
-    elif msg['op'] == 'indicate_progress':
-        try:
-            try:
-                stat = msg['data']['stat']
-            except KeyError:
-                stat = ''
-            nvim.call('RCGHCIIndicateProgress', msg['data']['progress'], stat)
-        except NvimError as e:
-            print("Warning: No function {} defined in Neovim.".format('RCGHCIIndicateProgress'))
-
+        call_vim_function('RCGHCIIndicateActivity', nvim)
     elif msg['op'] == 'status_update':
         try:
             elist = build_error_list(msg['data']['status'])
             nvim.call('setqflist', [], 'r', {"items": elist, "title": "RCGHCI Error list"})
             if len(msg['data']['status']['errors']) > 0:
                 call_vim_function('RCGHCIIndicateError', nvim)
-            if len(msg['data']['status']['warnings']) > 0:
+            elif len(msg['data']['status']['warnings']) > 0:
                 call_vim_function('RCGHCIIndicateWarnings', nvim)
             else:
                 call_vim_function('RCGHCIIndicateSuccess', nvim)

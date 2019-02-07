@@ -7,7 +7,7 @@ setup(
     author='Sandeep.C.R',
     author_email='sandeepcr2@gmail.com',
     license='MIT',
-    version = "1.9",
+    version = "2.0",
     packages = ['rcghci'],
     entry_points = {
         "console_scripts":['rcghci=rcghci.rcghci:main', 'rcghci_nvim=rcghci.rcghci_nvim:main']

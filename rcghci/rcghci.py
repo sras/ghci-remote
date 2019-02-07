@@ -17,6 +17,8 @@ import pexpect.exceptions
 import json
 import tempfile
 
+VERSION = "2.0.9"
+
 def log(msg):
     print("RCGHCI: {}".format(msg))
 
@@ -63,10 +65,6 @@ class Editor:
 
     def add_editor(self, socket, idf):
         self.editor_connections.append((socket, idf))
-
-    def send_progress(self, percent, stats = None):
-        data = {"progress": percent, "stats": stats}
-        self.send_msg({"op": 'indicate_progress', "data": data})
 
     def send_msg(self, msg):
         new = []
@@ -174,15 +172,7 @@ class GHCIProcess:
         self.editor.set_status(output, self.error_blocks)
 
     def expect(self):
-        while True:
-            m = self.process.expect([PROMPT, progress_re], timeout=1000)
-            if m == 1:
-                match = self.process.match
-                (d, a) = match.group(1, 2)
-                self.editor.send_progress((int(d)/int(a)) *  100, (d, a))
-            else:
-                self.editor.send_progress(100)
-                break
+        self.process.expect_exact([PROMPT], timeout=1000)
 
     def thread_callback(self):
         self.do_startup()
@@ -271,6 +261,7 @@ def merge_blocks(errors1, errors2):
     return {"errors": errors1['errors'] + errors2['errors'], "warnings": errors1['warnings'] + errors2['warnings']}
 
 def _main():
+    print("RCGHCI Version {}".format(VERSION))
     global command_read_pipe, command_write_pipe
     command_read_pipe, command_write_pipe = os.pipe()
 
