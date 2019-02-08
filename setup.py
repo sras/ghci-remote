@@ -10,7 +10,7 @@ setup(
     version = "2.1.1",
     packages = ['rcghci'],
     entry_points = {
-        "console_scripts":['rcghci=rcghci.rcghci:main', 'rcghci_nvim=rcghci.rcghci_nvim:main']
+        "console_scripts":['rcelm=rcghci.rcelm:main','rcghci=rcghci.rcghci:main', 'rcghci_nvim=rcghci.rcghci_nvim:main']
     },
     install_requires=[ 'pexpect' ]
 )
