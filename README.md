@@ -1,5 +1,7 @@
 # rcghci - A remote control for GHCI
 
+# Deprecated in favor of https://github.com/sras/repltalk
+
 This is a python3 script that straps on something like a RPC interface to a GHCI process.
 
 You can install it using `pip`
